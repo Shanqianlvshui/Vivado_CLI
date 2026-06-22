@@ -1,0 +1,19 @@
+# Vivado runtime artifacts
+vivado*.log
+vivado*.jou
+vivado*.str
+*.backup.log
+*.backup.jou
+
+# Vivado MCP experiment sessions
+.vivado_mcp_session*/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+*.egg-info/
+
+# Local MCP runtime state
+.vivado_mcp/
