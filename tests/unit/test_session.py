@@ -192,6 +192,7 @@ def test_hardware_discovery_requires_confirmation_and_returns_devices(tmp_path: 
         target="*Digilent*",
         refresh=True,
         timeout_seconds=5,
+        capture_diff=True,
     )
 
     assert discovered["ok"] is True
@@ -199,6 +200,7 @@ def test_hardware_discovery_requires_confirmation_and_returns_devices(tmp_path: 
     assert discovered["hardware"]["server_count"] == 1
     assert discovered["hardware"]["devices"][0]["part"] == "xc7a35tcpg236-1"
     assert discovered["hardware"]["devices"][0]["programmed"] is True
+    assert discovered["state_diff"]["ok"] is True
 
     manager.stop_session(session_ref, timeout_seconds=5)
 
@@ -324,11 +326,13 @@ def test_simulation_workflow_prepares_launches_and_analyzes_logs(tmp_path: Path)
     assert prepared["result"] == "simulation_prepared=sim_1"
     assert prepared["state_diff"]["ok"] is True
 
-    launched = manager.launch_simulation(session_ref=session_ref, fileset="sim_1", timeout_seconds=5)
+    launched = manager.launch_simulation(session_ref=session_ref, fileset="sim_1", timeout_seconds=5, capture_diff=True)
     assert launched["ok"] is True
     assert launched["simulation"]["simset"] == "sim_1"
     assert launched["log_analysis"]["ok"] is False
     assert launched["log_analysis"]["counts"]["error"] == 1
+    assert launched["state_diff"]["ok"] is True
+    assert "reports" in launched["state_diff"]["diff"]["summary"]["changed_domains"]
 
     analyzed = manager.analyze_xsim_logs(
         session_ref=session_ref,
@@ -353,6 +357,8 @@ def test_state_capture_and_diff_writes_artifacts(tmp_path: Path) -> None:
     assert before["ok"] is True
     assert before["snapshot_artifact_uri"].startswith(f"vivado://sessions/{session_ref}/artifacts/")
     assert before["state"]["project"]["current_project"] == "fake_project"
+    assert before["state"]["ip"]["ips"][0]["name"] == "axi_gpio_0"
+    assert before["state"]["reports"]["count"] == 0
     assert after["digest"] == before["digest"]
 
     before_artifact = before["snapshot_artifact_uri"].rsplit("/", 1)[-1]
@@ -365,6 +371,8 @@ def test_state_capture_and_diff_writes_artifacts(tmp_path: Path) -> None:
 
     assert diff["ok"] is True
     assert diff["changed"] is False
+    assert diff["diff"]["version"] == 2
+    assert diff["diff"]["summary"]["change_count"] == 0
     assert diff["diff_artifact_uri"].startswith(f"vivado://sessions/{session_ref}/artifacts/")
 
     manager.stop_session(session_ref, timeout_seconds=5)
@@ -387,6 +395,7 @@ def test_capture_diff_wraps_raw_tcl_and_structured_tools(tmp_path: Path) -> None
     assert raw["state_before"]["snapshot_artifact_uri"].startswith(f"vivado://sessions/{session_ref}/artifacts/")
     assert raw["state_after"]["snapshot_artifact_uri"].startswith(f"vivado://sessions/{session_ref}/artifacts/")
     assert raw["state_diff"]["ok"] is True
+    assert raw["state_diff"]["diff"]["summary"]["changed_domains"] == []
     assert raw["state_diff"]["diff_artifact_uri"].startswith(f"vivado://sessions/{session_ref}/artifacts/")
 
     top_v = tmp_path / "top.v"
@@ -401,6 +410,7 @@ def test_capture_diff_wraps_raw_tcl_and_structured_tools(tmp_path: Path) -> None
     assert added["ok"] is True
     assert added["result"] == "sources_updated"
     assert added["state_diff"]["ok"] is True
+    assert "summary" in added["state_diff"]["diff"]
 
     manager.stop_session(session_ref, timeout_seconds=5)
 

@@ -41,6 +41,10 @@ def test_diff_states_reports_project_files_runs_and_ips() -> None:
     assert diff["project"]["runs"]["changed"][0]["key"] == "synth_1"
     assert diff["project"]["ips"]["added"] == ["axi_gpio_0"]
     assert diff["filesets"]["filesets"]["changed"][0]["key"] == "sources_1"
+    assert diff["version"] == 2
+    assert diff["summary"]["changed_domains"] == ["project", "filesets", "runs", "ip"]
+    assert any(change["domain"] == "runs" and change["kind"] == "changed" for change in diff["changes"])
+    assert any(rec["tool"] == "vivado_analyze_reports" for rec in diff["recommendations"])
 
 
 def test_diff_states_reports_constraints_and_bd_changes() -> None:
@@ -87,6 +91,56 @@ def test_diff_states_reports_constraints_and_bd_changes() -> None:
     assert diff["constraints"]["warnings"]["added"] == ["no_create_clock_but_has_false_path"]
     assert diff["block_design"]["cells"]["added"][0]["name"] == "/axi_gpio_0"
     assert diff["block_design"]["ports"]["added"][0]["name"] == "/gpio_tri_o"
+    assert any(change["domain"] == "constraints" and change["kind"] == "added" for change in diff["changes"])
+    assert any(change["domain"] == "block_design" and change["kind"] == "added" for change in diff["changes"])
+    assert any(rec["tool"] == "vivado_xdc_order_check" for rec in diff["recommendations"])
+
+
+def test_diff_states_reports_ip_reports_and_hardware_domains() -> None:
+    before = {
+        "ip": {
+            "ips": [
+                {
+                    "name": "axi_gpio_0",
+                    "vlnv": "xilinx.com:ip:axi_gpio:2.0",
+                    "locked": False,
+                    "upgrade_available": False,
+                    "generated": True,
+                }
+            ]
+        },
+        "reports": {
+            "artifacts": [{"artifact_id": "reports/timing_before.rpt", "kind": "report", "report_type": "timing_summary"}],
+        },
+        "hardware": {"devices": [{"name": "xc7a35t_0", "programmed": False}]},
+    }
+    after = {
+        "ip": {
+            "ips": [
+                {
+                    "name": "axi_gpio_0",
+                    "vlnv": "xilinx.com:ip:axi_gpio:2.0",
+                    "locked": True,
+                    "upgrade_available": True,
+                    "generated": False,
+                }
+            ]
+        },
+        "reports": {
+            "artifacts": [
+                {"artifact_id": "reports/timing_before.rpt", "kind": "report", "report_type": "timing_summary"},
+                {"artifact_id": "reports/timing_after.rpt", "kind": "report", "report_type": "timing_summary"},
+            ],
+        },
+        "hardware": {"devices": [{"name": "xc7a35t_0", "programmed": True}]},
+    }
+
+    diff = diff_states(before, after)
+
+    assert diff["ip"]["ips"]["changed"][0]["key"] == "axi_gpio_0"
+    assert diff["reports"]["artifacts"]["added"][0]["artifact_id"] == "reports/timing_after.rpt"
+    assert diff["hardware"]["devices"]["changed"][0]["key"] == "xc7a35t_0"
+    assert any(rec["tool"] == "vivado_describe_ip" for rec in diff["recommendations"])
 
 
 def test_state_digest_is_stable_for_reordered_data() -> None:

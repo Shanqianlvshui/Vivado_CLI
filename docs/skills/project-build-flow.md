@@ -33,7 +33,7 @@ Use this for ordinary Project Mode FPGA work: create/open a project, add files, 
 ## Notes For AI
 
 - Prefer workflow tools over raw Tcl for repeatable project operations.
-- Use `capture_diff=true` on source/fileset/top/property/run operations when you need a before/after audit trail.
+- Use `capture_diff=true` on source/fileset/top/property/IP/simulation/run operations when you need a before/after audit trail; read `state_diff.summary`, `changes`, and `recommendations` first.
 - Link raw logs and reports as resources instead of pasting entire logs.
 - If a run fails, inspect `vivado_analyze_reports` issues before retrying.
 - Do not assume a timing failure is fixed by rerunning implementation; inspect timing reports first.

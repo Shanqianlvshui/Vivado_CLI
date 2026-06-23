@@ -1077,6 +1077,7 @@ class VivadoSessionManager:
         open_target: bool = True,
         refresh: bool = False,
         timeout_seconds: int = 120,
+        capture_diff: bool = False,
     ) -> dict[str, object]:
         from .hardware_summary import parse_hardware_summary
         from .tcl import hardware_discover_tcl
@@ -1084,27 +1085,36 @@ class VivadoSessionManager:
         if not expect_hardware_access:
             raise PermissionError("Hardware discovery touches hw_server/target state; pass expect_hardware_access=true")
         running = self._get(session_ref)
-        summaries_dir = running.record.session_dir / "summaries"
-        summaries_dir.mkdir(parents=True, exist_ok=True)
-        output_path = summaries_dir / f"hardware_{uuid.uuid4().hex[:8]}.tsv"
-        raw_result = self._submit_tcl(
-            running,
-            hardware_discover_tcl(
-                output_path,
-                hw_server_url=hw_server_url,
-                target=target,
-                open_target=open_target,
-                refresh=refresh,
-            ),
+        def operation() -> dict[str, object]:
+            summaries_dir = running.record.session_dir / "summaries"
+            summaries_dir.mkdir(parents=True, exist_ok=True)
+            output_path = summaries_dir / f"hardware_{uuid.uuid4().hex[:8]}.tsv"
+            raw_result = self._submit_tcl(
+                running,
+                hardware_discover_tcl(
+                    output_path,
+                    hw_server_url=hw_server_url,
+                    target=target,
+                    open_target=open_target,
+                    refresh=refresh,
+                ),
+                timeout_seconds=timeout_seconds,
+            )
+            result = _result_to_dict(raw_result, expect_destructive=False)
+            result["expect_hardware_access"] = expect_hardware_access
+            result["summary_path"] = str(output_path)
+            result["summary_artifact_uri"] = artifact_uri(session_ref, output_path.relative_to(running.record.session_dir).as_posix())
+            if output_path.exists():
+                result["hardware"] = parse_hardware_summary(output_path)
+            return result
+
+        return self._capture_diff_around(
+            running=running,
+            label="hardware_discover",
+            capture_diff=capture_diff,
             timeout_seconds=timeout_seconds,
+            operation=operation,
         )
-        result = _result_to_dict(raw_result, expect_destructive=False)
-        result["expect_hardware_access"] = expect_hardware_access
-        result["summary_path"] = str(output_path)
-        result["summary_artifact_uri"] = artifact_uri(session_ref, output_path.relative_to(running.record.session_dir).as_posix())
-        if output_path.exists():
-            result["hardware"] = parse_hardware_summary(output_path)
-        return result
 
     def nonproject_read_sources(
         self,
@@ -1455,47 +1465,57 @@ class VivadoSessionManager:
         run_all: bool = True,
         scripts_only: bool = False,
         timeout_seconds: int = 1200,
+        capture_diff: bool = False,
     ) -> dict[str, object]:
         from .simulation_summary import parse_simulation_launch
         from .tcl import simulation_launch_tcl
 
         running = self._get(session_ref)
-        summaries_dir = running.record.session_dir / "summaries"
-        summaries_dir.mkdir(parents=True, exist_ok=True)
-        output_path = summaries_dir / f"simulation_launch_{uuid.uuid4().hex[:8]}.tsv"
-        raw_result = self._submit_tcl(
-            running,
-            simulation_launch_tcl(
-                output_path,
-                fileset=fileset,
-                mode=mode,
-                sim_type=sim_type,
-                run_all=run_all,
-                scripts_only=scripts_only,
-            ),
+        def operation() -> dict[str, object]:
+            summaries_dir = running.record.session_dir / "summaries"
+            summaries_dir.mkdir(parents=True, exist_ok=True)
+            output_path = summaries_dir / f"simulation_launch_{uuid.uuid4().hex[:8]}.tsv"
+            raw_result = self._submit_tcl(
+                running,
+                simulation_launch_tcl(
+                    output_path,
+                    fileset=fileset,
+                    mode=mode,
+                    sim_type=sim_type,
+                    run_all=run_all,
+                    scripts_only=scripts_only,
+                ),
+                timeout_seconds=timeout_seconds,
+            )
+            result = _result_to_dict(raw_result, expect_destructive=False)
+            result["summary_path"] = str(output_path)
+            result["summary_artifact_uri"] = artifact_uri(session_ref, output_path.relative_to(running.record.session_dir).as_posix())
+            if output_path.exists():
+                result["simulation"] = parse_simulation_launch(output_path)
+            if isinstance(result.get("simulation"), dict):
+                log_paths = [
+                    str(row.get("path"))
+                    for row in result["simulation"].get("log_paths", [])
+                    if isinstance(row, dict) and row.get("path")
+                ]
+                if log_paths:
+                    try:
+                        result["log_analysis"] = self.analyze_xsim_logs(
+                            session_ref=session_ref,
+                            log_paths=log_paths,
+                            timeout_seconds=timeout_seconds,
+                        ).get("analysis")
+                    except Exception as exc:
+                        result["log_analysis_error"] = str(exc)
+            return result
+
+        return self._capture_diff_around(
+            running=running,
+            label=f"launch_simulation_{fileset}",
+            capture_diff=capture_diff,
             timeout_seconds=timeout_seconds,
+            operation=operation,
         )
-        result = _result_to_dict(raw_result, expect_destructive=False)
-        result["summary_path"] = str(output_path)
-        result["summary_artifact_uri"] = artifact_uri(session_ref, output_path.relative_to(running.record.session_dir).as_posix())
-        if output_path.exists():
-            result["simulation"] = parse_simulation_launch(output_path)
-        if isinstance(result.get("simulation"), dict):
-            log_paths = [
-                str(row.get("path"))
-                for row in result["simulation"].get("log_paths", [])
-                if isinstance(row, dict) and row.get("path")
-            ]
-            if log_paths:
-                try:
-                    result["log_analysis"] = self.analyze_xsim_logs(
-                        session_ref=session_ref,
-                        log_paths=log_paths,
-                        timeout_seconds=timeout_seconds,
-                    ).get("analysis")
-                except Exception as exc:
-                    result["log_analysis_error"] = str(exc)
-        return result
 
     def analyze_xsim_logs(
         self,
@@ -1581,6 +1601,11 @@ class VivadoSessionManager:
         except Exception as exc:
             errors.append({"section": "project", "error": str(exc)})
         try:
+            ip_state = self._ip_list_for_running(running, timeout_seconds=timeout_seconds)
+            state["ip"] = ip_state.get("ips", {})
+        except Exception as exc:
+            errors.append({"section": "ip", "error": str(exc)})
+        try:
             filesets = self._list_filesets_for_running(running, timeout_seconds=timeout_seconds)
             state["filesets"] = filesets.get("filesets", {})
         except Exception as exc:
@@ -1596,6 +1621,12 @@ class VivadoSessionManager:
                 state["block_design"] = bd.get("bd_summary", {})
             except Exception as exc:
                 errors.append({"section": "block_design", "error": str(exc)})
+        try:
+            state["reports"] = self._artifact_index_for_running(running)
+        except Exception as exc:
+            errors.append({"section": "reports", "error": str(exc)})
+        if errors:
+            state["errors"] = errors
         return state
 
     def _read_state_artifact(self, running: "_RunningSession", artifact_id: str | None, *, label: str) -> dict[str, object]:
@@ -1675,6 +1706,48 @@ class VivadoSessionManager:
         if output_path.exists():
             result["filesets"] = parse_list_filesets(output_path)
         return result
+
+    def _ip_list_for_running(self, running: "_RunningSession", *, timeout_seconds: int) -> dict[str, object]:
+        from .ip_summary import parse_ip_list
+        from .tcl import ip_list_tcl
+
+        summaries_dir = running.record.session_dir / "summaries"
+        summaries_dir.mkdir(parents=True, exist_ok=True)
+        output_path = summaries_dir / f"ips_{uuid.uuid4().hex[:8]}.tsv"
+        raw_result = self._submit_tcl(running, ip_list_tcl(output_path), timeout_seconds=timeout_seconds)
+        result = _result_to_dict(raw_result, expect_destructive=False)
+        result["summary_path"] = str(output_path)
+        result["summary_artifact_uri"] = artifact_uri(
+            running.record.session_ref,
+            output_path.relative_to(running.record.session_dir).as_posix(),
+        )
+        if output_path.exists():
+            result["ips"] = parse_ip_list(output_path)
+        return result
+
+    def _artifact_index_for_running(self, running: "_RunningSession") -> dict[str, object]:
+        artifacts = []
+        for path in sorted(running.record.session_dir.rglob("*")):
+            if not path.is_file():
+                continue
+            relative = path.relative_to(running.record.session_dir).as_posix()
+            if relative.startswith(("inbox/", "running/")):
+                continue
+            kind = _artifact_kind(path)
+            if kind not in {"report", "analysis", "simulation_log", "checkpoint"}:
+                continue
+            row: dict[str, object] = {
+                "artifact_id": relative,
+                "kind": kind,
+                "path": str(path),
+                "artifact_uri": artifact_uri(running.record.session_ref, relative),
+                "size_bytes": path.stat().st_size,
+            }
+            report_type = _report_type_from_artifact(path)
+            if report_type:
+                row["report_type"] = report_type
+            artifacts.append(row)
+        return {"artifacts": artifacts, "count": len(artifacts)}
 
     def _describe_fileset_for_running(self, running: "_RunningSession", *, name: str, timeout_seconds: int) -> dict[str, object]:
         from .fileset_summary import parse_describe_fileset
@@ -1979,6 +2052,41 @@ def _snapshot_ref(snapshot: dict[str, object] | None) -> dict[str, object] | Non
         "snapshot_artifact_uri": snapshot.get("snapshot_artifact_uri"),
         "snapshot_path": snapshot.get("snapshot_path"),
     }
+
+
+def _artifact_kind(path: Path) -> str:
+    suffix = path.suffix.lower()
+    parts = set(path.parts)
+    if suffix == ".rpt" or "reports" in parts:
+        return "report"
+    if "analyses" in parts or path.name.startswith("report_analysis_"):
+        return "analysis"
+    if suffix == ".log" and any(name in path.name.lower() for name in ("xsim", "xelab", "xvlog", "xvhdl")):
+        return "simulation_log"
+    if suffix == ".dcp" or "checkpoints" in parts:
+        return "checkpoint"
+    return "other"
+
+
+def _report_type_from_artifact(path: Path) -> str:
+    if path.suffix.lower() != ".rpt":
+        return ""
+    name = path.stem.lower()
+    for report_type in (
+        "timing_summary",
+        "timing_paths",
+        "utilization",
+        "drc",
+        "power",
+        "methodology",
+        "messages",
+        "clock_interaction",
+    ):
+        if report_type in name:
+            return report_type
+    if "timing" in name:
+        return "timing"
+    return ""
 
 
 def _resolve_ip_vlnv(

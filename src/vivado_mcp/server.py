@@ -608,6 +608,7 @@ def vivado_hw_discover(
     open_target: bool = True,
     refresh: bool = False,
     timeout_seconds: int = 120,
+    capture_diff: bool = False,
 ) -> dict[str, object]:
     """Read-only hardware discovery. Opens/connects Hardware Manager and lists targets/devices; does not program devices."""
     return manager.hardware_discover(
@@ -618,6 +619,7 @@ def vivado_hw_discover(
         open_target=open_target,
         refresh=refresh,
         timeout_seconds=timeout_seconds,
+        capture_diff=capture_diff,
     )
 
 
@@ -764,6 +766,7 @@ def vivado_launch_simulation(
     run_all: bool = True,
     scripts_only: bool = False,
     timeout_seconds: int = 1200,
+    capture_diff: bool = False,
 ) -> dict[str, object]:
     """Launch Vivado simulation and return structured launch/log information.
 
@@ -778,6 +781,7 @@ def vivado_launch_simulation(
         run_all=run_all,
         scripts_only=scripts_only,
         timeout_seconds=timeout_seconds,
+        capture_diff=capture_diff,
     )
 
 
