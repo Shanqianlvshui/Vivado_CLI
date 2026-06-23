@@ -600,6 +600,108 @@ def vivado_analyze_reports(
 
 
 @mcp.tool()
+def vivado_ip_catalog_search(
+    session_ref: str,
+    query: str | None = None,
+    vendor: str | None = None,
+    library: str | None = None,
+    name: str | None = None,
+    taxonomy: str | None = None,
+    limit: int = 25,
+    timeout_seconds: int = 120,
+) -> dict[str, object]:
+    """Search the Vivado IP catalog and return matching IP definitions."""
+    return manager.ip_catalog_search(
+        session_ref=session_ref,
+        query=query,
+        vendor=vendor,
+        library=library,
+        name=name,
+        taxonomy=taxonomy,
+        limit=limit,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+@mcp.tool()
+def vivado_create_ip(
+    session_ref: str,
+    module_name: str,
+    output_dir: str,
+    vlnv: str | None = None,
+    vendor: str | None = None,
+    library: str | None = None,
+    ip_name: str | None = None,
+    version: str | None = None,
+    properties: dict[str, object] | None = None,
+    timeout_seconds: int = 300,
+    capture_diff: bool = False,
+) -> dict[str, object]:
+    """Create a project IP instance from a VLNV or vendor/library/ip_name/version fields."""
+    return manager.ip_create(
+        session_ref=session_ref,
+        module_name=module_name,
+        output_dir=output_dir,
+        vlnv=vlnv,
+        vendor=vendor,
+        library=library,
+        ip_name=ip_name,
+        version=version,
+        properties=properties,
+        timeout_seconds=timeout_seconds,
+        capture_diff=capture_diff,
+    )
+
+
+@mcp.tool()
+def vivado_list_ips(session_ref: str, timeout_seconds: int = 120) -> dict[str, object]:
+    """List project IP instances with VLNV, .xci path, lock, upgrade, and generation state."""
+    return manager.ip_list(session_ref=session_ref, timeout_seconds=timeout_seconds)
+
+
+@mcp.tool()
+def vivado_describe_ip(session_ref: str, name: str, timeout_seconds: int = 120) -> dict[str, object]:
+    """Describe one project IP instance, including common properties and generated targets."""
+    return manager.ip_describe(session_ref=session_ref, name=name, timeout_seconds=timeout_seconds)
+
+
+@mcp.tool()
+def vivado_upgrade_ip(
+    session_ref: str,
+    name: str,
+    expect_upgrade: bool = False,
+    timeout_seconds: int = 300,
+    capture_diff: bool = False,
+) -> dict[str, object]:
+    """Upgrade one IP instance. Requires expect_upgrade=true because this modifies .xci state."""
+    return manager.ip_upgrade(
+        session_ref=session_ref,
+        name=name,
+        expect_upgrade=expect_upgrade,
+        timeout_seconds=timeout_seconds,
+        capture_diff=capture_diff,
+    )
+
+
+@mcp.tool()
+def vivado_generate_ip_outputs(
+    session_ref: str,
+    name: str,
+    targets: list[str] | None = None,
+    timeout_seconds: int = 600,
+    capture_diff: bool = False,
+) -> dict[str, object]:
+    """Generate IP output products for one IP instance."""
+    return manager.ip_generate_outputs(
+        session_ref=session_ref,
+        name=name,
+        targets=targets,
+        timeout_seconds=timeout_seconds,
+        capture_diff=capture_diff,
+    )
+
+
+@mcp.tool()
 def vivado_project_summary(session_ref: str, timeout_seconds: int = 60) -> dict[str, object]:
     """Return structured information about the current Vivado project, files, runs, IP, and block designs."""
     return manager.project_summary(session_ref=session_ref, timeout_seconds=timeout_seconds)

@@ -1067,6 +1067,173 @@ class VivadoSessionManager:
             "analysis_artifact_uri": artifact_uri(session_ref, output_path.relative_to(running.record.session_dir).as_posix()),
         }
 
+    def ip_catalog_search(
+        self,
+        *,
+        session_ref: str,
+        query: str | None = None,
+        vendor: str | None = None,
+        library: str | None = None,
+        name: str | None = None,
+        taxonomy: str | None = None,
+        limit: int = 25,
+        timeout_seconds: int = 120,
+    ) -> dict[str, object]:
+        from .ip_summary import parse_ip_catalog
+        from .tcl import ip_catalog_search_tcl
+
+        running = self._get(session_ref)
+        summaries_dir = running.record.session_dir / "summaries"
+        summaries_dir.mkdir(parents=True, exist_ok=True)
+        output_path = summaries_dir / f"ip_catalog_{uuid.uuid4().hex[:8]}.tsv"
+        raw_result = self._submit_tcl(
+            running,
+            ip_catalog_search_tcl(
+                output_path,
+                query=query,
+                vendor=vendor,
+                library=library,
+                name=name,
+                taxonomy=taxonomy,
+                limit=limit,
+            ),
+            timeout_seconds=timeout_seconds,
+        )
+        result = _result_to_dict(raw_result, expect_destructive=False)
+        result["summary_path"] = str(output_path)
+        result["summary_artifact_uri"] = artifact_uri(session_ref, output_path.relative_to(running.record.session_dir).as_posix())
+        if output_path.exists():
+            result["catalog"] = parse_ip_catalog(output_path)
+        return result
+
+    def ip_create(
+        self,
+        *,
+        session_ref: str,
+        module_name: str,
+        output_dir: str,
+        vlnv: str | None = None,
+        vendor: str | None = None,
+        library: str | None = None,
+        ip_name: str | None = None,
+        version: str | None = None,
+        properties: dict[str, object] | None = None,
+        timeout_seconds: int = 300,
+        capture_diff: bool = False,
+    ) -> dict[str, object]:
+        from .tcl import ip_create_tcl
+
+        resolved_vlnv = _resolve_ip_vlnv(
+            vlnv=vlnv,
+            vendor=vendor,
+            library=library,
+            ip_name=ip_name,
+            version=version,
+        )
+        resolved_output_dir = self.path_policy.require_under_roots(output_dir, label="ip_output_dir", must_exist=False)
+        running = self._get(session_ref)
+        return self._capture_diff_around(
+            running=running,
+            label=f"ip_create_{module_name}",
+            capture_diff=capture_diff,
+            timeout_seconds=timeout_seconds,
+            operation=lambda: _result_to_dict(
+                self._submit_tcl(
+                    running,
+                    ip_create_tcl(
+                        vlnv=resolved_vlnv,
+                        module_name=module_name,
+                        output_dir=resolved_output_dir,
+                        properties=properties,
+                    ),
+                    timeout_seconds=timeout_seconds,
+                ),
+                expect_destructive=True,
+            ),
+        )
+
+    def ip_list(self, *, session_ref: str, timeout_seconds: int = 120) -> dict[str, object]:
+        from .ip_summary import parse_ip_list
+        from .tcl import ip_list_tcl
+
+        running = self._get(session_ref)
+        summaries_dir = running.record.session_dir / "summaries"
+        summaries_dir.mkdir(parents=True, exist_ok=True)
+        output_path = summaries_dir / f"ips_{uuid.uuid4().hex[:8]}.tsv"
+        raw_result = self._submit_tcl(running, ip_list_tcl(output_path), timeout_seconds=timeout_seconds)
+        result = _result_to_dict(raw_result, expect_destructive=False)
+        result["summary_path"] = str(output_path)
+        result["summary_artifact_uri"] = artifact_uri(session_ref, output_path.relative_to(running.record.session_dir).as_posix())
+        if output_path.exists():
+            result["ips"] = parse_ip_list(output_path)
+        return result
+
+    def ip_describe(self, *, session_ref: str, name: str, timeout_seconds: int = 120) -> dict[str, object]:
+        from .ip_summary import parse_ip_detail
+        from .tcl import ip_describe_tcl
+
+        if not name.strip():
+            raise ValueError("IP name must not be empty")
+        running = self._get(session_ref)
+        summaries_dir = running.record.session_dir / "summaries"
+        summaries_dir.mkdir(parents=True, exist_ok=True)
+        output_path = summaries_dir / f"ip_desc_{uuid.uuid4().hex[:8]}.tsv"
+        raw_result = self._submit_tcl(running, ip_describe_tcl(output_path, name=name), timeout_seconds=timeout_seconds)
+        result = _result_to_dict(raw_result, expect_destructive=False)
+        result["summary_path"] = str(output_path)
+        result["summary_artifact_uri"] = artifact_uri(session_ref, output_path.relative_to(running.record.session_dir).as_posix())
+        if output_path.exists():
+            result["ip"] = parse_ip_detail(output_path)
+        return result
+
+    def ip_upgrade(
+        self,
+        *,
+        session_ref: str,
+        name: str,
+        expect_upgrade: bool = False,
+        timeout_seconds: int = 300,
+        capture_diff: bool = False,
+    ) -> dict[str, object]:
+        from .tcl import ip_upgrade_tcl
+
+        if not expect_upgrade:
+            raise PermissionError("IP upgrade modifies .xci state; pass expect_upgrade=true to confirm")
+        running = self._get(session_ref)
+        return self._capture_diff_around(
+            running=running,
+            label=f"ip_upgrade_{name}",
+            capture_diff=capture_diff,
+            timeout_seconds=timeout_seconds,
+            operation=lambda: _result_to_dict(
+                self._submit_tcl(running, ip_upgrade_tcl(name=name), timeout_seconds=timeout_seconds),
+                expect_destructive=True,
+            ),
+        )
+
+    def ip_generate_outputs(
+        self,
+        *,
+        session_ref: str,
+        name: str,
+        targets: list[str] | None = None,
+        timeout_seconds: int = 600,
+        capture_diff: bool = False,
+    ) -> dict[str, object]:
+        from .tcl import ip_generate_outputs_tcl
+
+        running = self._get(session_ref)
+        return self._capture_diff_around(
+            running=running,
+            label=f"ip_generate_{name}",
+            capture_diff=capture_diff,
+            timeout_seconds=timeout_seconds,
+            operation=lambda: _result_to_dict(
+                self._submit_tcl(running, ip_generate_outputs_tcl(name=name, targets=targets), timeout_seconds=timeout_seconds),
+                expect_destructive=True,
+            ),
+        )
+
     def project_summary(self, *, session_ref: str, timeout_seconds: int = 60) -> dict[str, object]:
         from .project_summary import parse_project_summary
         from .tcl import project_summary_tcl
@@ -1508,6 +1675,31 @@ def _snapshot_ref(snapshot: dict[str, object] | None) -> dict[str, object] | Non
         "snapshot_artifact_uri": snapshot.get("snapshot_artifact_uri"),
         "snapshot_path": snapshot.get("snapshot_path"),
     }
+
+
+def _resolve_ip_vlnv(
+    *,
+    vlnv: str | None,
+    vendor: str | None,
+    library: str | None,
+    ip_name: str | None,
+    version: str | None,
+) -> str:
+    explicit = (vlnv or "").strip()
+    components = {
+        "vendor": (vendor or "").strip(),
+        "library": (library or "").strip(),
+        "ip_name": (ip_name or "").strip(),
+        "version": (version or "").strip(),
+    }
+    if explicit:
+        if any(components.values()):
+            raise ValueError("Provide either vlnv or vendor/library/ip_name/version, not both")
+        return explicit
+    missing = [key for key, value in components.items() if not value]
+    if missing:
+        raise ValueError("Provide vlnv or all of vendor, library, ip_name, and version")
+    return "{vendor}:{library}:{ip_name}:{version}".format(**components)
 
 
 def _parse_result(command_id: str, result_path: Path, command_path: Path) -> TclCommandResult:

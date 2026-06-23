@@ -98,6 +98,8 @@ def _result_for(body: str) -> str:
         return "bd_actions_applied=1 current_bd_design=design_1"
     if "bd_validated=" in body or "validate_bd_design" in body:
         return "bd_validated=design_1"
+    if "ip_outputs_generated" in body:
+        return "ip_outputs_generated"
     if "generate_target" in body:
         return "bd_generated=C:/fake/design_1.bd wrapper=C:/fake/design_1_wrapper.v"
     if "create_bd_design" in body or "open_bd_design" in body:
@@ -189,6 +191,53 @@ def _result_for(body: str) -> str:
             encoding="utf-8",
         )
         return f"constraint_diag={path}"
+    ip_catalog_match = re.search(r"set mcp_ip_catalog_file \{([^}]+)\}", body)
+    if ip_catalog_match:
+        path = Path(ip_catalog_match.group(1))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "catalog_ip\txilinx.com:ip:axi_gpio:2.0\taxi_gpio\tAXI GPIO\t2.0\txilinx.com\tip\t/AXI Peripheral\t1\n",
+            encoding="utf-8",
+        )
+        return f"ip_catalog={path}"
+    ip_list_match = re.search(r"set mcp_ip_list_file \{([^}]+)\}", body)
+    if ip_list_match:
+        path = Path(ip_list_match.group(1))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "\n".join(
+                [
+                    "has_project\t1",
+                    "current_project\tfake_project",
+                    "ip\taxi_gpio_0\txilinx.com:ip:axi_gpio:2.0\tC:/fake/axi_gpio_0.xci\t0\t1\t1\tGenerated",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        return f"ips={path}"
+    ip_desc_match = re.search(r"set mcp_ip_desc_file \{([^}]+)\}", body)
+    if ip_desc_match:
+        path = Path(ip_desc_match.group(1))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "\n".join(
+                [
+                    "ip\taxi_gpio_0\txilinx.com:ip:axi_gpio:2.0\tC:/fake/axi_gpio_0.xci\t0\t1\t1\tGenerated",
+                    "property\tCONFIG.C_GPIO_WIDTH\t32",
+                    "property\tGENERATE_SYNTH_CHECKPOINT\t1",
+                    "target\tall",
+                    "target\tsynthesis",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        return f"ip_desc={path}"
+    if "create_ip" in body:
+        return "ip_created=C:/fake/axi_gpio_0.xci"
+    if "upgrade_ip" in body:
+        return "ip_upgraded=C:/fake/axi_gpio_0.xci"
     if "fileset_applied" in body or "set_property INCLUDE_DIRS" in body:
         return "fileset_applied"
     if "constraint_set_applied" in body or "current_fileset -constrset" in body or "reorder_files -fileset" in body:

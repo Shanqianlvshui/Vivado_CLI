@@ -141,6 +141,21 @@ def help_topic(topic: str | None = None) -> dict[str, object]:
             ],
             "related_resources": ["vivado://skills/block-design-flow"],
         }
+    if normalized in {"ip", "ips", "ip-catalog", "xci", "create-ip", "upgrade-ip", "output-products"}:
+        return {
+            "topic": "ip_flow",
+            "summary": "Search the Vivado IP catalog, create project IP, inspect .xci state, upgrade IP explicitly, and generate output products with structured tools.",
+            "recommended_tools": [
+                "vivado_ip_catalog_search",
+                "vivado_create_ip",
+                "vivado_list_ips",
+                "vivado_describe_ip",
+                "vivado_upgrade_ip",
+                "vivado_generate_ip_outputs",
+                "vivado_search_official_docs",
+            ],
+            "related_resources": ["vivado://skills/project-build-flow", "vivado://official-docs/index"],
+        }
     if normalized in {
         "fileset",
         "filesets",
@@ -234,6 +249,32 @@ def suggest_next_steps(
                 {"tool": "vivado_list_official_references", "why": "Search the packaged official-document catalog by topic or keyword."},
             ],
             "related_resources": ["vivado://official-docs/index", "vivado://skills/official-docs-reference"],
+        }
+    if any(
+        word in text
+        for word in (
+            "create_ip",
+            "upgrade_ip",
+            "get_ips",
+            "xci",
+            "ip catalog",
+            "ip output",
+            "output product",
+            "output products",
+            "vlnv",
+            "axi_gpio",
+        )
+    ):
+        return {
+            "recommendations": [
+                {"tool": "vivado_ip_catalog_search", "why": "Find the exact VLNV and IP catalog metadata before creating IP."},
+                {"tool": "vivado_create_ip", "why": "Create project IP with path validation, CONFIG properties, and optional state diff."},
+                {"tool": "vivado_list_ips", "why": "Inspect project IP instances, .xci paths, lock state, upgrade state, and generation state."},
+                {"tool": "vivado_describe_ip", "why": "Inspect one IP instance's VLNV, CONFIG properties, and generated targets."},
+                {"tool": "vivado_generate_ip_outputs", "why": "Generate IP output products through a structured auditable tool."},
+                {"tool": "vivado_upgrade_ip", "why": "Upgrade IP only when .xci mutation is explicitly confirmed with expect_upgrade=true."},
+            ],
+            "related_resources": ["vivado://skills/project-build-flow", "vivado://official-docs/index"],
         }
     if any(
         word in text

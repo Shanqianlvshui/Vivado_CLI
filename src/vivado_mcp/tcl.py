@@ -503,6 +503,188 @@ def report_tcl(report_type: str, output_path: Path) -> str:
     )
 
 
+# ---------------------------------------------------------------------------
+# IP helpers
+# ---------------------------------------------------------------------------
+
+
+def ip_catalog_search_tcl(
+    output_path: Path,
+    *,
+    query: str | None = None,
+    vendor: str | None = None,
+    library: str | None = None,
+    name: str | None = None,
+    taxonomy: str | None = None,
+    limit: int = 25,
+) -> str:
+    out = quote_tcl(output_path)
+    out_string = str(output_path).replace("\\", "/")
+    lines = [
+        f"set mcp_ip_catalog_file {out}",
+        "set f [open $mcp_ip_catalog_file w]",
+        "proc mcp_put {f args} { puts $f [join $args \"\\t\"] }",
+        f"set mcp_filter_query {quote_tcl(query or '')}",
+        f"set mcp_filter_vendor {quote_tcl(vendor or '')}",
+        f"set mcp_filter_library {quote_tcl(library or '')}",
+        f"set mcp_filter_name {quote_tcl(name or '')}",
+        f"set mcp_filter_taxonomy {quote_tcl(taxonomy or '')}",
+    ]
+    lines.extend(
+        [
+            "set mcp_count 0",
+            "foreach ipdef [get_ipdefs -all] {",
+            "  set mcp_vlnv $ipdef",
+            "  set mcp_name \"\"",
+            "  set mcp_display \"\"",
+            "  set mcp_version \"\"",
+            "  set mcp_vendor \"\"",
+            "  set mcp_library \"\"",
+            "  set mcp_taxonomy \"\"",
+            "  set mcp_supported 1",
+            "  catch { set mcp_name [get_property NAME $ipdef] }",
+            "  catch { set mcp_display [get_property DISPLAY_NAME $ipdef] }",
+            "  catch { set mcp_version [get_property VERSION $ipdef] }",
+            "  catch { set mcp_vendor [get_property VENDOR $ipdef] }",
+            "  catch { set mcp_library [get_property LIBRARY $ipdef] }",
+            "  catch { set mcp_taxonomy [get_property TAXONOMY $ipdef] }",
+            "  catch { set mcp_supported [get_property SUPPORTED_TARGETS $ipdef] }",
+            "  set mcp_haystack \"$mcp_vlnv $mcp_name $mcp_display $mcp_taxonomy\"",
+            "  if {$mcp_filter_query ne \"\" && ![string match -nocase \"*$mcp_filter_query*\" $mcp_haystack]} { continue }",
+            "  if {$mcp_filter_vendor ne \"\" && ![string match -nocase $mcp_filter_vendor $mcp_vendor]} { continue }",
+            "  if {$mcp_filter_library ne \"\" && ![string match -nocase $mcp_filter_library $mcp_library]} { continue }",
+            "  if {$mcp_filter_name ne \"\" && ![string match -nocase $mcp_filter_name $mcp_name]} { continue }",
+            "  if {$mcp_filter_taxonomy ne \"\" && ![string match -nocase \"*$mcp_filter_taxonomy*\" $mcp_taxonomy]} { continue }",
+            "  mcp_put $f catalog_ip $mcp_vlnv $mcp_name $mcp_display $mcp_version $mcp_vendor $mcp_library $mcp_taxonomy $mcp_supported",
+            "  incr mcp_count",
+            f"  if {{$mcp_count >= {max(1, int(limit))}}} {{ break }}",
+            "}",
+            "close $f",
+            f"return \"ip_catalog={out_string}\"",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def ip_create_tcl(
+    *,
+    vlnv: str,
+    module_name: str,
+    output_dir: Path,
+    properties: dict[str, Any] | None = None,
+) -> str:
+    if not vlnv.strip():
+        raise ValueError("ip_create_tcl requires vlnv")
+    if not module_name.strip():
+        raise ValueError("ip_create_tcl requires module_name")
+    lines = [
+        f"create_ip -vlnv {quote_tcl(vlnv)} -module_name {quote_tcl(module_name)} -dir {quote_tcl(output_dir)}",
+    ]
+    if properties:
+        lines.append(f"set_property -dict [list {_property_list(properties)}] [get_ips {quote_tcl(module_name)}]")
+    lines.extend(
+        [
+            f"set mcp_ip_file [get_property IP_FILE [get_ips {quote_tcl(module_name)}]]",
+            'return "ip_created=$mcp_ip_file"',
+        ]
+    )
+    return "\n".join(lines)
+
+
+def ip_list_tcl(output_path: Path) -> str:
+    out = quote_tcl(output_path)
+    out_string = str(output_path).replace("\\", "/")
+    return "\n".join(
+        [
+            f"set mcp_ip_list_file {out}",
+            "set f [open $mcp_ip_list_file w]",
+            "proc mcp_put {f args} { puts $f [join $args \"\\t\"] }",
+            ip_support_procs_tcl(),
+            "if {[catch {current_project} mcp_proj] || $mcp_proj eq \"\"} {",
+            "  mcp_put $f has_project 0",
+            "  close $f",
+            f"  return \"ips={out_string}\"",
+            "}",
+            "mcp_put $f has_project 1",
+            "mcp_put $f current_project $mcp_proj",
+            "foreach ip [get_ips -quiet] {",
+            "  mcp_put $f ip $ip [mcp_ip_prop $ip VLNV] [mcp_ip_prop $ip IP_FILE] [mcp_ip_prop $ip IS_LOCKED] [mcp_ip_prop $ip UPGRADE_AVAILABLE] [mcp_ip_prop $ip IS_GENERATED] [mcp_ip_prop $ip SYNTHESIS_STATUS]",
+            "}",
+            "close $f",
+            f"return \"ips={out_string}\"",
+        ]
+    )
+
+
+def ip_describe_tcl(output_path: Path, *, name: str) -> str:
+    out = quote_tcl(output_path)
+    out_string = str(output_path).replace("\\", "/")
+    return "\n".join(
+        [
+            f"set mcp_ip_desc_file {out}",
+            "set f [open $mcp_ip_desc_file w]",
+            "proc mcp_put {f args} { puts $f [join $args \"\\t\"] }",
+            ip_support_procs_tcl(),
+            f"set ip [get_ips -quiet {quote_tcl(name)}]",
+            "if {[llength $ip] == 0} {",
+            "  mcp_put $f error ip_not_found",
+            "  close $f",
+            f"  return \"ip_desc={out_string}\"",
+            "}",
+            "set ip [lindex $ip 0]",
+            "mcp_put $f ip $ip [mcp_ip_prop $ip VLNV] [mcp_ip_prop $ip IP_FILE] [mcp_ip_prop $ip IS_LOCKED] [mcp_ip_prop $ip UPGRADE_AVAILABLE] [mcp_ip_prop $ip IS_GENERATED] [mcp_ip_prop $ip SYNTHESIS_STATUS]",
+            "foreach prop {VLNV IP_FILE IP_DIR IS_LOCKED UPGRADE_AVAILABLE IS_GENERATED SYNTHESIS_STATUS GENERATE_SYNTH_CHECKPOINT} {",
+            "  mcp_put $f property $prop [mcp_ip_prop $ip $prop]",
+            "}",
+            "foreach prop [list_property $ip] {",
+            "  if {[string match {CONFIG.*} $prop]} { mcp_put $f property $prop [mcp_ip_prop $ip $prop] }",
+            "}",
+            "foreach target {all synthesis simulation instantiation_template} {",
+            "  set generated \"\"",
+            "  catch { set generated [get_property IS_GENERATED [get_files -quiet -of_objects $ip]] }",
+            "  if {$generated ne \"\"} { mcp_put $f target $target }",
+            "}",
+            "close $f",
+            f"return \"ip_desc={out_string}\"",
+        ]
+    )
+
+
+def ip_upgrade_tcl(*, name: str) -> str:
+    if not name.strip():
+        raise ValueError("ip_upgrade_tcl requires name")
+    return "\n".join(
+        [
+            f"upgrade_ip [get_ips {quote_tcl(name)}]",
+            f"set mcp_ip_file [get_property IP_FILE [get_ips {quote_tcl(name)}]]",
+            'return "ip_upgraded=$mcp_ip_file"',
+        ]
+    )
+
+
+def ip_generate_outputs_tcl(*, name: str, targets: list[str] | None = None) -> str:
+    if not name.strip():
+        raise ValueError("ip_generate_outputs_tcl requires name")
+    selected = targets or ["all"]
+    lines = []
+    for target in selected:
+        lines.append(f"generate_target {quote_tcl(target)} [get_ips {quote_tcl(name)}]")
+    lines.append('return "ip_outputs_generated"')
+    return "\n".join(lines)
+
+
+def ip_support_procs_tcl() -> str:
+    return "\n".join(
+        [
+            "proc mcp_ip_prop {ip prop} {",
+            "  set value \"\"",
+            "  catch { set value [get_property $prop $ip] }",
+            "  return $value",
+            "}",
+        ]
+    )
+
+
 def project_summary_tcl(output_path: Path) -> str:
     out = quote_tcl(output_path)
     out_string = str(output_path).replace("\\", "/")

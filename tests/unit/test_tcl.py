@@ -9,6 +9,12 @@ from vivado_mcp.tcl import (
     constraint_set_apply_tcl,
     create_project_tcl,
     fileset_apply_tcl,
+    ip_catalog_search_tcl,
+    ip_create_tcl,
+    ip_describe_tcl,
+    ip_generate_outputs_tcl,
+    ip_list_tcl,
+    ip_upgrade_tcl,
     quote_tcl,
     report_tcl,
 )
@@ -110,3 +116,34 @@ def test_constraint_set_apply_tcl_creates_adds_and_reorders_xdc() -> None:
     assert "set_property IS_ENABLED_SYNTHESIS 1 [get_filesets {constrs_extra}]" in script
     assert "reorder_files -fileset {constrs_extra} -before" in script
     assert "current_fileset -constrset [get_filesets {constrs_extra}]" in script
+
+
+def test_ip_tcl_helpers_cover_catalog_create_describe_and_outputs() -> None:
+    catalog = ip_catalog_search_tcl(Path("catalog.tsv"), query="axi", vendor="xilinx.com", name="axi_gpio", limit=5)
+    assert "get_ipdefs -all" in catalog
+    assert "set mcp_filter_query {axi}" in catalog
+    assert 'string match -nocase "*$mcp_filter_query*"' in catalog
+    assert "mcp_put $f catalog_ip" in catalog
+
+    created = ip_create_tcl(
+        vlnv="xilinx.com:ip:axi_gpio:2.0",
+        module_name="axi_gpio_0",
+        output_dir=Path("C:/demo/ip"),
+        properties={"CONFIG.C_GPIO_WIDTH": 32},
+    )
+    assert "create_ip -vlnv {xilinx.com:ip:axi_gpio:2.0} -module_name {axi_gpio_0} -dir {C:/demo/ip}" in created
+    assert "set_property -dict [list {CONFIG.C_GPIO_WIDTH} {32}] [get_ips {axi_gpio_0}]" in created
+
+    listed = ip_list_tcl(Path("ips.tsv"))
+    assert "foreach ip [get_ips -quiet]" in listed
+
+    described = ip_describe_tcl(Path("ip.tsv"), name="axi_gpio_0")
+    assert "get_ips -quiet {axi_gpio_0}" in described
+    assert "GENERATE_SYNTH_CHECKPOINT" in described
+
+    upgraded = ip_upgrade_tcl(name="axi_gpio_0")
+    assert "upgrade_ip [get_ips {axi_gpio_0}]" in upgraded
+
+    generated = ip_generate_outputs_tcl(name="axi_gpio_0", targets=["all", "synthesis"])
+    assert "generate_target {all} [get_ips {axi_gpio_0}]" in generated
+    assert "generate_target {synthesis} [get_ips {axi_gpio_0}]" in generated

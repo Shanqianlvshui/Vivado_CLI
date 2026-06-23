@@ -75,10 +75,16 @@ def test_command_coverage_for_priority_cross_flow_commands() -> None:
     assert tcl_command_doc_topic("launch_runs") == "build"
 
     create_ip = tcl_command_coverage("create_ip")
-    assert create_ip["coverage_status"] == "raw_tcl"
-    assert create_ip["recommended_tools"] == ["vivado_search_official_docs", "vivado_review_tcl", "vivado_run_tcl"]
-    assert "No structured MCP IP creation tool" in create_ip["notes"]
+    assert create_ip["coverage_status"] == "covered"
+    assert create_ip["recommended_tools"] == ["vivado_create_ip", "vivado_ip_catalog_search"]
     assert tcl_command_doc_topic("create_ip") == "ip"
+
+    upgrade_ip = tcl_command_coverage("upgrade_ip")
+    assert upgrade_ip["coverage_status"] == "covered"
+    assert upgrade_ip["recommended_tools"] == ["vivado_upgrade_ip", "vivado_describe_ip"]
+
+    generate_target = tcl_command_coverage("generate_target")
+    assert "vivado_generate_ip_outputs" in generate_target["recommended_tools"]
 
 
 def test_build_tcl_command_help_combines_docs_vivado_and_coverage() -> None:

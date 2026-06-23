@@ -138,6 +138,88 @@ def test_project_summary_returns_structured_state(tmp_path: Path) -> None:
     manager.stop_session(session_ref, timeout_seconds=5)
 
 
+def test_ip_workflow_returns_structured_state(tmp_path: Path) -> None:
+    wrapper = _make_fake_wrapper(tmp_path)
+    manager = VivadoSessionManager(default_workspace=tmp_path)
+    started = manager.start_session(vivado_path=str(wrapper), open_gui=False)
+    session_ref = str(started["session_ref"])
+
+    catalog = manager.ip_catalog_search(session_ref=session_ref, query="axi_gpio", timeout_seconds=5)
+    assert catalog["ok"] is True
+    assert catalog["catalog"]["ips"][0]["vlnv"] == "xilinx.com:ip:axi_gpio:2.0"
+
+    with pytest.raises(ValueError):
+        manager.ip_create(
+            session_ref=session_ref,
+            module_name="bad_ip",
+            output_dir=str(tmp_path / "ip"),
+            vendor="xilinx.com",
+            library="ip",
+            ip_name="axi_gpio",
+            timeout_seconds=5,
+        )
+
+    created = manager.ip_create(
+        session_ref=session_ref,
+        vlnv="xilinx.com:ip:axi_gpio:2.0",
+        module_name="axi_gpio_0",
+        output_dir=str(tmp_path / "ip"),
+        properties={"CONFIG.C_GPIO_WIDTH": 32},
+        timeout_seconds=5,
+        capture_diff=True,
+    )
+    assert created["ok"] is True
+    assert created["result"] == "ip_created=C:/fake/axi_gpio_0.xci"
+    assert created["state_diff"]["ok"] is True
+
+    created_from_parts = manager.ip_create(
+        session_ref=session_ref,
+        module_name="axi_gpio_1",
+        output_dir=str(tmp_path / "ip"),
+        vendor="xilinx.com",
+        library="ip",
+        ip_name="axi_gpio",
+        version="2.0",
+        timeout_seconds=5,
+    )
+    assert created_from_parts["ok"] is True
+
+    listed = manager.ip_list(session_ref=session_ref, timeout_seconds=5)
+    assert listed["ips"]["ips"][0]["name"] == "axi_gpio_0"
+    assert listed["ips"]["ips"][0]["upgrade_available"] is True
+
+    described = manager.ip_describe(session_ref=session_ref, name="axi_gpio_0", timeout_seconds=5)
+    assert described["ip"]["properties"]["CONFIG.C_GPIO_WIDTH"] == "32"
+    assert "synthesis" in described["ip"]["targets"]
+
+    with pytest.raises(PermissionError):
+        manager.ip_upgrade(session_ref=session_ref, name="axi_gpio_0", timeout_seconds=5)
+
+    upgraded = manager.ip_upgrade(
+        session_ref=session_ref,
+        name="axi_gpio_0",
+        expect_upgrade=True,
+        timeout_seconds=5,
+        capture_diff=True,
+    )
+    assert upgraded["ok"] is True
+    assert upgraded["result"] == "ip_upgraded=C:/fake/axi_gpio_0.xci"
+    assert upgraded["state_diff"]["ok"] is True
+
+    generated = manager.ip_generate_outputs(
+        session_ref=session_ref,
+        name="axi_gpio_0",
+        targets=["all"],
+        timeout_seconds=5,
+        capture_diff=True,
+    )
+    assert generated["ok"] is True
+    assert generated["result"] == "ip_outputs_generated"
+    assert generated["state_diff"]["ok"] is True
+
+    manager.stop_session(session_ref, timeout_seconds=5)
+
+
 def test_state_capture_and_diff_writes_artifacts(tmp_path: Path) -> None:
     wrapper = _make_fake_wrapper(tmp_path)
     manager = VivadoSessionManager(default_workspace=tmp_path)

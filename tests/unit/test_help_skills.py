@@ -34,6 +34,11 @@ def test_help_topic_points_to_skill() -> None:
     bd_help = help_topic("bd")
     assert bd_help["related_resources"] == ["vivado://skills/block-design-flow"]
 
+    ip_help = help_topic("ip")
+    assert "vivado_ip_catalog_search" in ip_help["recommended_tools"]
+    assert "vivado_create_ip" in ip_help["recommended_tools"]
+    assert "vivado_upgrade_ip" in ip_help["recommended_tools"]
+
     docs_help = help_topic("official_docs")
     assert "vivado_list_official_references" in docs_help["recommended_tools"]
     assert "vivado_search_official_docs" in docs_help["recommended_tools"]
@@ -79,6 +84,15 @@ def test_suggest_next_steps_routes_report_diagnostics() -> None:
     assert tools[0] == "vivado_analyze_reports"
     assert "vivado_search_official_docs" in tools
     assert "vivado://official-docs/index" in result["related_resources"]
+
+
+def test_suggest_next_steps_routes_ip_work() -> None:
+    result = suggest_next_steps(goal="create_ip axi_gpio and generate IP output products", has_session=True, has_project=True)
+    tools = [row["tool"] for row in result["recommendations"]]
+
+    assert tools[0] == "vivado_ip_catalog_search"
+    assert "vivado_create_ip" in tools
+    assert "vivado_generate_ip_outputs" in tools
 
 
 def test_skills_index_contains_resource_uris() -> None:

@@ -62,6 +62,22 @@ RISK_RULES: tuple[RiskRule, ...] = (
         requires_expect_destructive=True,
     ),
     RiskRule(
+        risk_id="ip.upgrade",
+        severity="high",
+        pattern=r"\b(upgrade_ip)\b",
+        reason="Upgrades IP metadata and can rewrite .xci files or generated products.",
+        recommended_docs=("UG835", "UG896"),
+        requires_expect_destructive=True,
+    ),
+    RiskRule(
+        risk_id="ip.generate",
+        severity="medium",
+        pattern=r"\bgenerate_target\b",
+        reason="Regenerates IP or BD output products and can change generated files.",
+        recommended_docs=("UG835", "UG896", "UG994"),
+        requires_expect_destructive=True,
+    ),
+    RiskRule(
         risk_id="delete.objects",
         severity="high",
         pattern=r"(?m)(?:^|[;\{\[])\s*(delete_[A-Za-z0-9_]+|remove_files)\b",
@@ -199,8 +215,8 @@ COMMAND_COVERAGE: dict[str, dict[str, object]] = {
     },
     "generate_target": {
         "coverage_status": "partial",
-        "recommended_tools": ["vivado_bd_generate"],
-        "notes": "BD output generation is covered for common targets; force/advanced forms may need Tcl.",
+        "recommended_tools": ["vivado_generate_ip_outputs", "vivado_bd_generate"],
+        "notes": "IP and BD output generation are covered for common targets; force/advanced forms may need Tcl.",
     },
     "make_wrapper": {
         "coverage_status": "partial",
@@ -249,16 +265,16 @@ COMMAND_COVERAGE: dict[str, dict[str, object]] = {
         "notes": "No structured I/O delay writer exists yet. Verify the referenced clock and external timing budget in UG903.",
     },
     "create_ip": {
-        "coverage_status": "raw_tcl",
-        "recommended_tools": ["vivado_search_official_docs", "vivado_review_tcl", "vivado_run_tcl"],
-        "recommendation": "use_expert_tcl_with_review",
-        "notes": "No structured MCP IP creation tool exists yet. Use UG896/UG835 and prefer a future IP tool once added.",
+        "coverage_status": "covered",
+        "recommended_tools": ["vivado_create_ip", "vivado_ip_catalog_search"],
+        "recommendation": "prefer_structured_tool",
+        "notes": "Use structured IP creation so VLNV, output directory, CONFIG properties, and state diff are recorded.",
     },
     "upgrade_ip": {
-        "coverage_status": "raw_tcl",
-        "recommended_tools": ["vivado_search_official_docs", "vivado_review_tcl", "vivado_run_tcl"],
-        "recommendation": "use_expert_tcl_with_review",
-        "notes": "No structured MCP IP upgrade tool exists yet. Review generated-product impact and version notes before execution.",
+        "coverage_status": "covered",
+        "recommended_tools": ["vivado_upgrade_ip", "vivado_describe_ip"],
+        "recommendation": "prefer_structured_tool",
+        "notes": "Use structured IP upgrade with expect_upgrade=true so .xci mutation is explicit and auditable.",
     },
     "report_timing_summary": {
         "coverage_status": "partial",
