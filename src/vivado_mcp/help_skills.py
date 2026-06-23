@@ -127,7 +127,13 @@ def help_topic(topic: str | None = None) -> dict[str, object]:
         return {
             "topic": "raw_tcl",
             "summary": "Raw Tcl is available in trusted-local/unrestricted profiles and can do anything Vivado Tcl can do.",
-            "recommended_tools": ["vivado_session_state", "vivado_run_tcl", "vivado_source_tcl"],
+            "recommended_tools": [
+                "vivado_tcl_command_help",
+                "vivado_review_tcl",
+                "vivado_session_state",
+                "vivado_run_tcl",
+                "vivado_source_tcl",
+            ],
             "related_resources": ["vivado://skills/raw-tcl-expert"],
         }
     if normalized in {"official-docs", "official-docs-reference", "official-docs-index", "official-docs-guide", "official-docs-catalog", "official-docs-catalogue", "official", "reference", "docs", "manuals"}:
@@ -173,6 +179,8 @@ def suggest_next_steps(
     if "tcl" in text:
         return {
             "recommendations": [
+                {"tool": "vivado_tcl_command_help", "why": "Check official docs, current Vivado help, and MCP structured-tool coverage before writing Tcl."},
+                {"tool": "vivado_review_tcl", "why": "Review high-risk Tcl before expert execution."},
                 {"tool": "vivado_session_state", "why": "Confirm the managed session is idle before raw Tcl."},
                 {"tool": "vivado_run_tcl", "why": "Run a small Tcl probe or mutation through the bridge."},
             ],

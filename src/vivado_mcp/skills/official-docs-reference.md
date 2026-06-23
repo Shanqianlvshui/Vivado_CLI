@@ -9,11 +9,12 @@ Use this whenever a Vivado task depends on command syntax, flow rules, object pr
 3. Call `vivado_get_official_reference` for the selected document IDs and check `local_path_candidates` under `C:\Database\FPGA\Vivado_docs`.
 4. If a local PDF is missing, call `vivado_sync_official_docs` for packaged Vivado manuals or `vivado_download_xilinx_pdf` for one specific AMD/Xilinx document.
 5. Call `vivado_search_official_docs` with a command name, option, report name, or error text before generating Tcl for unfamiliar behavior.
-6. For exact command syntax, treat UG835 as the command authority.
-7. For object properties, treat UG912 as the property authority.
-8. For workflow concepts, use the topic-specific user guide before generating Tcl.
-9. Prefer structured MCP workflow tools when they cover the task.
-10. Use `vivado_run_tcl` or `vivado_source_tcl` only when the workflow tools do not expose the needed command.
+6. Call `vivado_tcl_command_help` for exact Tcl command routing; it combines UG835 search, MCP coverage, and optional installed Vivado help.
+7. For exact command syntax, treat UG835 as the command authority.
+8. For object properties, treat UG912 as the property authority.
+9. For workflow concepts, use the topic-specific user guide before generating Tcl.
+10. Prefer structured MCP workflow tools when they cover the task.
+11. Use `vivado_review_tcl` before `vivado_run_tcl` or `vivado_source_tcl` when the workflow tools do not expose the needed command.
 
 ## Topic Routing
 
@@ -42,4 +43,4 @@ Use this whenever a Vivado task depends on command syntax, flow rules, object pr
 - PDF download uses AMD KHub APIs and verifies the `%PDF` signature instead of saving Fluid Topics HTML pages.
 - If an installed Vivado version differs from the packaged guide version, prefer the installed Vivado command help for version-specific syntax checks.
 - Do not assume every UG835 command has a structured MCP tool. Expert mode can run raw Tcl, but workflow tools should stay the first choice for repeatable operations.
-- For destructive or hardware-affecting Tcl, call out the risk before execution and use `expect_destructive=true`.
+- For destructive or hardware-affecting Tcl, use `vivado_review_tcl`, call out the risk before execution, and use `expect_destructive=true`.

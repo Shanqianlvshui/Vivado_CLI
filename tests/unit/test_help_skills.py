@@ -38,6 +38,10 @@ def test_help_topic_points_to_skill() -> None:
     assert "vivado_search_official_docs" in docs_help["recommended_tools"]
     assert "vivado://official-docs/index" in docs_help["related_resources"]
 
+    tcl_help = help_topic("raw-tcl")
+    assert "vivado_tcl_command_help" in tcl_help["recommended_tools"]
+    assert "vivado_review_tcl" in tcl_help["recommended_tools"]
+
 
 def test_skills_index_contains_resource_uris() -> None:
     index = skills_index()

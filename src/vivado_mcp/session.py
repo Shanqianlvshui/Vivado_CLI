@@ -228,6 +228,16 @@ class VivadoSessionManager:
         )
         return _result_to_dict(result, expect_destructive=expect_destructive)
 
+    def tcl_command_help(self, *, session_ref: str, command: str, timeout_seconds: int = 30) -> dict[str, object]:
+        from .tcl import quote_tcl
+
+        if not command.strip():
+            raise ValueError("command must not be empty")
+        running = self._get(session_ref)
+        tcl = f"return [help {quote_tcl(command)}]"
+        result = self._submit_tcl(running, tcl, timeout_seconds=timeout_seconds)
+        return _result_to_dict(result, expect_destructive=False)
+
     def stop_session(self, session_ref: str, *, force: bool = False, timeout_seconds: int = 20) -> dict[str, object]:
         running = self._get(session_ref)
         gui_before_stop = self._gui_state(running, activate=False)

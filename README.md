@@ -47,6 +47,8 @@ The MCP should expose tutorial content through both tools and resources:
 - `vivado_suggest_next_steps`
 - `vivado_official_reference_guide`
 - `vivado_search_official_docs`
+- `vivado_tcl_command_help`
+- `vivado_review_tcl`
 - `vivado_sync_official_docs`
 - `vivado_download_xilinx_pdf`
 - `vivado_search_xilinx_docs`
@@ -106,9 +108,11 @@ AI clients should use the MCP in this order:
 4. If local PDFs are missing, call `vivado_sync_official_docs` for the packaged Vivado catalog or `vivado_download_xilinx_pdf` for a specific AMD/Xilinx PDF.
 5. Call `vivado_search_official_docs(query=..., doc_id=... or topic=...)` for exact command names, options, and short local PDF snippets.
 6. Prefer structured workflow tools such as project, report, and BD tools when they cover the task.
-7. Use `vivado_run_tcl` or `vivado_source_tcl` only for commands that are not yet modeled as workflow tools.
-8. After every mutating action, call `vivado_project_summary`, `vivado_bd_summary`, `vivado_report`, or `vivado_list_artifacts` to inspect the resulting state.
-9. Call `vivado_focus_gui` only when the user explicitly wants Vivado brought to the foreground.
+7. Call `vivado_tcl_command_help(command=...)` before unfamiliar Tcl commands; it combines official search, MCP tool coverage, and optional installed Vivado help.
+8. Call `vivado_review_tcl(tcl=...)` before expert-mode execution.
+9. Use `vivado_run_tcl` or `vivado_source_tcl` only for commands that are not yet modeled as workflow tools; set `expect_destructive=true` when the review requires it.
+10. After every mutating action, call `vivado_project_summary`, `vivado_bd_summary`, `vivado_report`, or `vivado_list_artifacts` to inspect the resulting state.
+11. Call `vivado_focus_gui` only when the user explicitly wants Vivado brought to the foreground.
 
 ## First Manual Test
 
@@ -119,10 +123,12 @@ After connecting the MCP client, use this sequence:
 3. `vivado_start_session` with `open_gui=true`, then confirm `gui.visible=true`.
 4. `vivado_focus_gui` only if the user asks to bring the Vivado window forward.
 5. `vivado_official_reference_guide` with `topic="tcl"` or the relevant task topic before expert Tcl work.
-6. `vivado_run_tcl` with `tcl="return \"version=[version -short]\""`.
-7. `vivado_project_summary` after opening or creating a project.
-8. `vivado_list_artifacts` to inspect command/result files.
-9. `vivado_stop_session`.
+6. `vivado_tcl_command_help` with `command="create_project"` or another command being planned.
+7. `vivado_review_tcl` with `tcl="return \"version=[version -short]\""`.
+8. `vivado_run_tcl` with `tcl="return \"version=[version -short]\""`.
+9. `vivado_project_summary` after opening or creating a project.
+10. `vivado_list_artifacts` to inspect command/result files.
+11. `vivado_stop_session`.
 
 ## Implemented Tools
 
@@ -134,6 +140,8 @@ After connecting the MCP client, use this sequence:
 - `vivado_stop_session`
 - `vivado_run_tcl`
 - `vivado_source_tcl`
+- `vivado_review_tcl`
+- `vivado_tcl_command_help`
 - `vivado_create_project`
 - `vivado_open_project`
 - `vivado_add_sources`

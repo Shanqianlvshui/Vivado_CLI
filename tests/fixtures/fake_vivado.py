@@ -62,6 +62,9 @@ def _write_status(session_dir: Path, state: str, detail: str) -> None:
 
 
 def _result_for(body: str) -> str:
+    help_match = re.search(r"help \{([^}]+)\}", body)
+    if help_match:
+        return f"Usage: {help_match.group(1)} fake help"
     if "version -short" in body:
         return "version=2023.1"
     if "create_project" in body:

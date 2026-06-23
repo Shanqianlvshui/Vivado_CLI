@@ -18,6 +18,7 @@ from .official_docs import (
     search_official_docs,
 )
 from .session import VivadoSessionManager
+from .tcl_assist import build_tcl_command_help, review_tcl
 from .vivado_locator import check_vivado
 from .xilinx_docs import clean_bad_pdfs, download_xilinx_pdf, search_xilinx_docs, sync_official_docs
 
@@ -120,6 +121,43 @@ def vivado_source_tcl(
         timeout_seconds=timeout_seconds,
         expect_destructive=expect_destructive,
     )
+
+
+@mcp.tool()
+def vivado_review_tcl(tcl: str, intended_goal: str | None = None) -> dict[str, object]:
+    """Review Tcl for destructive, hardware-affecting, or high-risk commands before expert execution."""
+    return review_tcl(tcl, intended_goal=intended_goal)
+
+
+@mcp.tool()
+def vivado_tcl_command_help(
+    command: str,
+    session_ref: str | None = None,
+    topic: str | None = None,
+    timeout_seconds: int = 30,
+) -> dict[str, object]:
+    """Combine official-doc search, MCP coverage guidance, and optional installed Vivado help for one Tcl command."""
+    if not command.strip():
+        return build_tcl_command_help(command=command)
+    official_search = search_official_docs(
+        query=command,
+        doc_id="UG835",
+        topic=topic,
+        max_results=3,
+        context_chars=260,
+        timeout_seconds=max(timeout_seconds, 30),
+    )
+    installed_help: dict[str, object] | None = None
+    if session_ref:
+        try:
+            installed_help = manager.tcl_command_help(
+                session_ref=session_ref,
+                command=command,
+                timeout_seconds=timeout_seconds,
+            )
+        except Exception as exc:
+            installed_help = {"ok": False, "error": str(exc)}
+    return build_tcl_command_help(command=command, official_search=official_search, installed_help=installed_help)
 
 
 @mcp.tool()

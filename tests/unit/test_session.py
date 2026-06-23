@@ -44,6 +44,10 @@ def test_safe_profile_blocks_raw_tcl_but_allows_workflow_tcl(tmp_path: Path) -> 
     with pytest.raises(PermissionError):
         manager.source_tcl(session_ref=session_ref, script_path=str(tmp_path / "probe.tcl"), timeout_seconds=5)
 
+    help_result = manager.tcl_command_help(session_ref=session_ref, command="create_project", timeout_seconds=5)
+    assert help_result["ok"] is True
+    assert help_result["result"] == "Usage: create_project fake help"
+
     created = manager.create_project(
         session_ref=session_ref,
         project_name="demo",

@@ -20,6 +20,8 @@ async def test_mcp_server_lists_core_tools() -> None:
                 "vivado_start_session",
                 "vivado_focus_gui",
                 "vivado_run_tcl",
+                "vivado_review_tcl",
+                "vivado_tcl_command_help",
                 "vivado_project_summary",
                 "vivado_bd_open_or_create",
                 "vivado_bd_summary",
