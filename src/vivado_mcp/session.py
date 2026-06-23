@@ -1096,7 +1096,7 @@ class VivadoSessionManager:
     ) -> dict[str, object]:
         from .report_parser import analyze_report_summaries
 
-        selected = report_types or ["timing_summary", "utilization", "drc", "power", "methodology"]
+        selected = report_types or ["timing_summary", "clock_interaction", "utilization", "drc", "power", "methodology"]
         running = self._get(session_ref)
         reports: dict[str, dict[str, object]] = {}
         summaries: dict[str, dict[str, object]] = {}

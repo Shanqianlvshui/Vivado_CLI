@@ -230,7 +230,7 @@ def help_topic(topic: str | None = None) -> dict[str, object]:
     if normalized in {"report", "reports", "timing", "timing-closure", "utilization", "drc", "power", "methodology"}:
         return {
             "topic": "report_diagnostics",
-            "summary": "Generate common Vivado reports and classify timing, utilization, DRC, power, and methodology findings into issue IDs with evidence, next steps, and official-doc queries.",
+            "summary": "Generate Vivado reports and classify timing, clock interaction, utilization, DRC, power, and methodology findings into issue IDs with quality gates, root-cause hints, next-action plans, and official-doc queries.",
             "recommended_tools": [
                 "vivado_analyze_reports",
                 "vivado_report",
@@ -460,8 +460,8 @@ def suggest_next_steps(
     ):
         return {
             "recommendations": [
-                {"tool": "vivado_analyze_reports", "why": "Generate common reports and rank timing, utilization, DRC, power, and methodology findings."},
-                {"tool": "vivado_report", "why": "Generate a specific report when the analysis points at one area."},
+                {"tool": "vivado_analyze_reports", "why": "Generate reports, rank issues, and inspect quality gates plus the next-action plan."},
+                {"tool": "vivado_report", "why": "Generate a specific report when an issue's next_tools points at one area."},
                 {"tool": "vivado_search_official_docs", "why": "Use UG906/UG949/UG1292/UG907 guidance for the reported failure mode."},
                 {"tool": "vivado_tcl_command_help", "why": "Check exact report command syntax before custom report Tcl."},
             ],
@@ -499,7 +499,7 @@ def suggest_next_steps(
             {"tool": "vivado_capture_state", "why": "Capture a baseline before mutating project state."},
             {"tool": "vivado_run_synthesis", "why": "Run synthesis before implementation."},
             {"tool": "vivado_state_diff", "why": "Compare before/after state when a build or setup step changed the project."},
-            {"tool": "vivado_analyze_reports", "why": "Inspect timing/utilization/DRC/power/methodology after each build step."},
+            {"tool": "vivado_analyze_reports", "why": "Inspect quality gates, next-action plan, and timing/utilization/DRC/power/methodology after each build step."},
             {"tool": "vivado_report", "why": "Generate a targeted report after the aggregate analysis points at a failure area."},
         ],
         "related_resources": ["vivado://skills/project-build-flow"],

@@ -383,6 +383,12 @@ def _write_fake_report(path: Path, body: str) -> None:
         )
     elif "report_methodology" in body:
         text = "FAKE METHODOLOGY REPORT\nCRITICAL WARNING: [METHODOLOGY TIMING-1] Review clocks\n"
+    elif "report_clock_interaction" in body:
+        text = (
+            "FAKE CLOCK INTERACTION REPORT\n"
+            "Unsafe clock interaction between clk_a and clk_b\n"
+            "No common primary clock between clk_c and clk_d\n"
+        )
     else:
         text = "FAKE REPORT\nWNS 0.000\n"
     path.write_text(text, encoding="utf-8")

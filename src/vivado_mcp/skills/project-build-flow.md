@@ -18,7 +18,7 @@ Use this for ordinary Project Mode FPGA work: create/open a project, add files, 
 12. Call `vivado_xdc_order_check` before synthesis when constraints changed.
 13. Call `vivado_run_synthesis`.
 14. If synthesis succeeds, call `vivado_run_implementation`.
-15. Call `vivado_analyze_reports` for timing, utilization, DRC, methodology, and power diagnostics; use issue IDs, evidence, and official-doc queries to decide the next action.
+15. Call `vivado_analyze_reports` for timing, clock interaction, utilization, DRC, methodology, and power diagnostics; use `quality_gates`, `next_action_plan`, issue IDs, evidence, root-cause hints, and official-doc queries to decide the next action.
 16. Use targeted `vivado_report` calls after the aggregate analysis identifies a failure area.
 
 ## Notes For AI
@@ -26,7 +26,7 @@ Use this for ordinary Project Mode FPGA work: create/open a project, add files, 
 - Prefer workflow tools over raw Tcl for repeatable project operations.
 - Use `capture_diff=true` on source/fileset/top/property/IP/simulation/run operations when you need a before/after audit trail; inspect `state_diff.summary`, `changes`, and `recommendations`.
 - Link raw logs and reports as resources instead of pasting entire logs.
-- If a run fails, inspect `vivado_analyze_reports` issues before retrying.
+- If a run fails, inspect `vivado_analyze_reports` `quality_gates`, `next_action_plan`, and issue `root_cause_hint` values before retrying.
 - If simulation fails, inspect `vivado_analyze_xsim_logs` and `vivado_simulation_audit` before changing RTL or IP.
 - If a Non-project step fails, inspect `vivado_nonproject_audit`, its command artifact, prerequisites, and requested reports before rerunning later steps.
 - If hardware discovery fails, inspect `vivado_hw_discover` warning rows and verify the hw_server URL or cable target before expert Tcl.

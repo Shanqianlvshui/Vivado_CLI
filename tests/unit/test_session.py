@@ -104,7 +104,7 @@ def test_analyze_reports_generates_diagnostics(tmp_path: Path) -> None:
 
     result = manager.analyze_reports(
         session_ref=session_ref,
-        report_types=["timing_summary", "utilization", "drc", "power", "methodology"],
+        report_types=["timing_summary", "clock_interaction", "utilization", "drc", "power", "methodology"],
         timeout_seconds=5,
     )
 
@@ -118,8 +118,10 @@ def test_analyze_reports_generates_diagnostics(tmp_path: Path) -> None:
     assert "power.high_total" in issue_ids
     assert "power.thermal_risk" in issue_ids
     assert "methodology.clocking_issue" in issue_ids
+    assert "clock_interaction.unsafe" in issue_ids
     assert result["analysis_artifact_uri"].startswith(f"vivado://sessions/{session_ref}/artifacts/")
     assert result["reports"]["timing_summary"]["report_artifact_uri"].startswith(f"vivado://sessions/{session_ref}/artifacts/")
+    assert result["summaries"]["clock_interaction"]["unsafe_count"] == 1
     manager.stop_session(session_ref, timeout_seconds=5)
 
 

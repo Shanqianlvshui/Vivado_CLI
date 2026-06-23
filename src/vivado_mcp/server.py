@@ -614,7 +614,7 @@ def vivado_report(
 @mcp.tool()
 def vivado_analyze_reports(
     session_ref: str,
-    report_types: list[Literal["timing_summary", "timing_paths", "utilization", "drc", "power", "methodology", "messages"]] | None = None,
+    report_types: list[Literal["timing_summary", "timing_paths", "utilization", "drc", "power", "methodology", "clock_interaction", "messages"]] | None = None,
     timeout_seconds: int = 300,
 ) -> dict[str, object]:
     """Generate common reports and return structured diagnostics with next-step guidance."""

@@ -113,6 +113,11 @@ def test_command_coverage_for_priority_cross_flow_commands() -> None:
     generate_target = tcl_command_coverage("generate_target")
     assert "vivado_generate_ip_outputs" in generate_target["recommended_tools"]
 
+    clock_interaction = tcl_command_coverage("report_clock_interaction")
+    assert clock_interaction["coverage_status"] == "partial"
+    assert clock_interaction["recommended_tools"] == ["vivado_report", "vivado_analyze_reports"]
+    assert tcl_command_doc_topic("report_clock_interaction") == "reports"
+
     open_hw = tcl_command_coverage("open_hw_manager")
     assert open_hw["coverage_status"] == "covered"
     assert open_hw["recommended_tools"] == ["vivado_hw_discover"]

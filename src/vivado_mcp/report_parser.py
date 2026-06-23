@@ -13,6 +13,8 @@ def parse_report(report_type: str, text: str) -> dict[str, object]:
         return parse_messages(text, report_type=report_type)
     if report_type == "power":
         return parse_power(text)
+    if report_type == "clock_interaction":
+        return parse_clock_interaction(text)
     return {"report_type": report_type, "parsed": False}
 
 
@@ -43,18 +45,27 @@ def parse_timing(text: str) -> dict[str, object]:
     if "clock_interaction_warnings" not in ints and re.search(r"\b(clock interaction|unsafe clock)", text, re.IGNORECASE):
         ints["clock_interaction_warnings"] = max(1, len(re.findall(r"\b(clock interaction|unsafe clock)", text, re.IGNORECASE)))
 
+    slacks = [float(match.group(1)) for match in re.finditer(r"Slack\s*\((?:VIOLATED|MET)\)\s*:\s*(-?\d+(?:\.\d+)?)\s*ns?", text, re.IGNORECASE)]
+    violated_slacks = [value for value in slacks if value < 0]
+    if slacks:
+        values["worst_slack_ns"] = min(slacks)
+        ints["violated_path_count"] = len(violated_slacks)
+
     status = "unknown"
     wns = values.get("wns")
     whs = values.get("whs")
-    if wns is not None or whs is not None:
-        status = "fail" if (wns is not None and wns < 0) or (whs is not None and whs < 0) else "pass"
+    worst_slack = values.get("worst_slack_ns")
+    pulse_width_failed = any(values.get(key, 0.0) < 0 for key in ("wpws", "tpws"))
+    if wns is not None or whs is not None or worst_slack is not None or pulse_width_failed:
+        status = "fail" if (wns is not None and wns < 0) or (whs is not None and whs < 0) or (worst_slack is not None and worst_slack < 0) or pulse_width_failed else "pass"
 
     setup = {key: values[key] for key in ("wns", "tns") if key in values}
     hold = {key: values[key] for key in ("whs", "ths") if key in values}
     pulse_width = {key: values[key] for key in ("wpws", "tpws") if key in values}
     coverage = {key: ints[key] for key in ("unconstrained_paths", "unconstrained_clocks", "clock_interaction_warnings") if key in ints}
+    path_sample = _timing_path_sample(text)
 
-    return {
+    summary = {
         "report_type": "timing",
         "parsed": bool(values or ints),
         "status": status,
@@ -65,6 +76,9 @@ def parse_timing(text: str) -> dict[str, object]:
         **values,
         **ints,
     }
+    if path_sample:
+        summary["timing_path_sample"] = path_sample
+    return summary
 
 
 def parse_utilization(text: str) -> dict[str, object]:
@@ -79,6 +93,12 @@ def parse_utilization(text: str) -> dict[str, object]:
         "DSPs": ("dsps", "dsp"),
         "DSP": ("dsp", "dsp"),
         "URAM": ("uram", "uram"),
+        "Bonded IOB": ("bonded_iob", "io"),
+        "IOB": ("iob", "io"),
+        "BUFG": ("bufg", "clocking"),
+        "BUFGCE": ("bufgce", "clocking"),
+        "MMCM": ("mmcm", "clocking"),
+        "PLL": ("pll", "clocking"),
     }
     for line in text.splitlines():
         if "|" not in line:
@@ -110,6 +130,7 @@ def parse_messages(text: str, report_type: str = "messages") -> dict[str, object
     rules: dict[str, dict[str, int]] = {}
     messages: list[dict[str, str]] = []
     categories: Counter[str] = Counter()
+    category_rules: dict[str, Counter[str]] = {}
     pattern = re.compile(r"\b(ERROR|CRITICAL WARNING|WARNING):\s*\[([^\]]+)\]\s*(.*)", re.IGNORECASE)
     for match in pattern.finditer(text):
         severity = match.group(1).upper()
@@ -120,6 +141,7 @@ def parse_messages(text: str, report_type: str = "messages") -> dict[str, object
         row[field] += 1
         category = _rule_category(rule, message)
         categories[category] += 1
+        category_rules.setdefault(category, Counter())[rule] += 1
         messages.append(
             {
                 "severity": severity.lower().replace(" ", "_"),
@@ -136,12 +158,28 @@ def parse_messages(text: str, report_type: str = "messages") -> dict[str, object
         "warnings": sum(row["warnings"] for row in rules.values()),
         "rules": rules,
         "rule_categories": dict(categories),
+        "category_rules": {category: dict(counts) for category, counts in category_rules.items()},
         "messages": messages[:25],
     }
 
 
+def parse_clock_interaction(text: str) -> dict[str, object]:
+    unsafe = len(re.findall(r"\bunsafe\b", text, re.IGNORECASE))
+    no_common = len(re.findall(r"\bno\s+common\s+(?:primary\s+)?clock\b", text, re.IGNORECASE))
+    partial = len(re.findall(r"\bpartial\b", text, re.IGNORECASE))
+    ignored = len(re.findall(r"\bignored\b", text, re.IGNORECASE))
+    return {
+        "report_type": "clock_interaction",
+        "parsed": any((unsafe, no_common, partial, ignored)),
+        "unsafe_count": unsafe,
+        "no_common_clock_count": no_common,
+        "partial_count": partial,
+        "ignored_count": ignored,
+    }
+
+
 def parse_power(text: str) -> dict[str, object]:
-    fields: dict[str, float] = {}
+    fields: dict[str, object] = {}
     patterns = {
         "total_on_chip_power_w": r"Total\s+(?:On-Chip\s+)?Power\s*(?:\(W\))?\s*[:=]?\s*(-?\d+(?:\.\d+)?)",
         "dynamic_power_w": r"Dynamic(?:\s+Power)?\s*(?:\(W\))?\s*[:=]?\s*(-?\d+(?:\.\d+)?)",
@@ -153,6 +191,9 @@ def parse_power(text: str) -> dict[str, object]:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             fields[field] = float(match.group(1))
+    confidence = re.search(r"Confidence\s+Level\s*[:=]?\s*([A-Za-z]+)", text, re.IGNORECASE)
+    if confidence:
+        fields["confidence_level"] = confidence.group(1).lower()
     return {"report_type": "power", "parsed": bool(fields), **fields}
 
 
@@ -181,7 +222,10 @@ def analyze_report_summaries(summaries: dict[str, dict[str, object]]) -> dict[st
             issues.extend(_analyze_messages(report_type, summary))
         elif summary.get("report_type") == "power":
             issues.extend(_analyze_power(report_type, summary))
+        elif summary.get("report_type") == "clock_interaction":
+            issues.extend(_analyze_clock_interaction(report_type, summary))
 
+    issues = [_enrich_issue(issue) for issue in issues]
     issues.sort(key=_issue_sort_key)
     return {
         "ok": not any(issue.get("severity") == "high" for issue in issues),
@@ -193,7 +237,9 @@ def analyze_report_summaries(summaries: dict[str, dict[str, object]]) -> dict[st
             "low_count": sum(1 for issue in issues if issue.get("severity") == "low"),
         },
         "issues": issues,
-        "suggested_next_tools": ["vivado_report", "vivado_search_official_docs", "vivado_tcl_command_help"],
+        "quality_gates": _quality_gates(issues),
+        "next_action_plan": _next_action_plan(issues),
+        "suggested_next_tools": _suggested_next_tools(issues),
         "official_references": _official_references_for_issues(issues),
     }
 
@@ -208,6 +254,10 @@ def _analyze_timing(report_type: str, summary: dict[str, object]) -> list[dict[s
     unconstrained_paths = _int_value(summary.get("unconstrained_paths")) or 0
     unconstrained_clocks = _int_value(summary.get("unconstrained_clocks")) or 0
     clock_interaction = _int_value(summary.get("clock_interaction_warnings")) or 0
+    worst_slack = _float_value(summary.get("worst_slack_ns"))
+    violated_paths = _int_value(summary.get("violated_path_count")) or 0
+    wpws = _float_value(summary.get("wpws"))
+    tpws = _float_value(summary.get("tpws"))
 
     if unconstrained_paths or unconstrained_clocks:
         issues.append(
@@ -235,6 +285,20 @@ def _analyze_timing(report_type: str, summary: dict[str, object]) -> list[dict[s
                 ["Vivado WNS TNS setup timing closure", "UG1292 setup timing closure checklist"],
             )
         )
+    if worst_slack is not None and worst_slack < 0 and wns is None:
+        issues.append(
+            _issue(
+                "timing.path_slack_failed",
+                "high",
+                report_type,
+                f"worst_slack={worst_slack} ns, violated_path_count={violated_paths}",
+                "Inspect the worst timing paths and classify whether the failure is logic depth, routing, clocking, or constraints.",
+                "timing",
+                ["UG906", "UG949", "UG1292"],
+                ["Vivado report_timing slack violated path timing closure"],
+                timing_path_sample=summary.get("timing_path_sample"),
+            )
+        )
     if whs is not None and whs < 0:
         issues.append(
             _issue(
@@ -246,6 +310,19 @@ def _analyze_timing(report_type: str, summary: dict[str, object]) -> list[dict[s
                 "timing",
                 ["UG906", "UG949", "UG1292"],
                 ["Vivado WHS THS hold timing closure", "UG1292 hold timing closure"],
+            )
+        )
+    if (wpws is not None and wpws < 0) or (tpws is not None and tpws < 0):
+        issues.append(
+            _issue(
+                "timing.pulse_width_failed",
+                "high",
+                report_type,
+                f"WPWS={wpws if wpws is not None else 'unknown'} ns, TPWS={tpws if tpws is not None else 'unknown'} ns",
+                "Inspect pulse-width checks, generated clocks, waveform definitions, and clock-modifying logic.",
+                "timing",
+                ["UG906", "UG903", "UG949"],
+                ["Vivado pulse width timing WPWS TPWS generated clock"],
             )
         )
     if clock_interaction:
@@ -288,23 +365,29 @@ def _analyze_utilization(report_type: str, summary: dict[str, object]) -> list[d
         pct = _float_value(row.get("utilization_percent"))
         if pct is None:
             continue
+        resource_class = str(row.get("resource_class") or "")
         severity = "high" if pct >= 95 else "medium" if pct >= 80 else None
         if severity:
             used = _int_value(row.get("used"))
             available = _int_value(row.get("available"))
+            issue_id = _utilization_issue_id(resource_class)
+            next_step = _utilization_next_step(resource_class)
+            refs = ["UG906", "UG949"]
+            if resource_class == "io":
+                refs.append("UG899")
             issues.append(
                 _issue(
-                    "utilization.resource_pressure",
+                    issue_id,
                     severity,
                     report_type,
                     f"{name} utilization is {pct}%"
                     + (f" ({used}/{available})" if used is not None and available is not None else ""),
-                    "Inspect hierarchical utilization and consider resource sharing, retiming, or device/strategy changes.",
+                    next_step,
                     "utilization",
-                    ["UG906", "UG949"],
+                    refs,
                     ["Vivado report_utilization resource pressure", "UG949 utilization timing closure resource sharing"],
                     resource=name,
-                    resource_class=row.get("resource_class"),
+                    resource_class=resource_class,
                 )
             )
     return issues
@@ -319,8 +402,11 @@ def _analyze_messages(report_type: str, summary: dict[str, object]) -> list[dict
     category_specs = [
         ("io_standard_missing", "drc.io_standard_missing", "high", "Set explicit IOSTANDARD constraints for affected ports before bitstream generation.", ["UG903", "UG899", "UG906"], ["DRC NSTD-1 Unspecified I/O Standard Vivado"]),
         ("io_pin_unconstrained", "drc.io_pin_unconstrained", "high", "Set PACKAGE_PIN/LOC constraints or remove unused top-level ports.", ["UG903", "UG899", "UG906"], ["DRC UCIO-1 Unconstrained Logical Port Vivado"]),
+        ("bitstream_blocker", "drc.bitstream_blocker", "high", "Fix DRC blockers before attempting bitstream generation.", ["UG906", "UG904"], ["Vivado DRC bitstream blocker write_bitstream"]),
         ("clocking", "methodology.clocking_issue", "medium", "Review clock definitions, generated clocks, clock groups, and clock-domain crossings.", ["UG906", "UG903", "UG949", "UG1292"], ["Vivado methodology TIMING clocking issue"]),
         ("timing", "methodology.timing_issue", "medium", "Review methodology timing rules before changing implementation strategy.", ["UG906", "UG949", "UG1292"], ["Vivado methodology timing rule report"]),
+        ("cdc", "methodology.cdc_issue", "medium", "Review CDC synchronizers, asynchronous crossings, and clock grouping before timing closure iterations.", ["UG906", "UG949", "UG1292"], ["Vivado methodology CDC unsafe crossing"]),
+        ("reset", "methodology.reset_issue", "medium", "Review reset topology, synchronizers, fanout, and timing impact before implementation tuning.", ["UG906", "UG949", "UG1292"], ["Vivado methodology reset synchronization fanout"]),
     ]
     emitted_categories: set[str] = set()
     for category, issue_id, default_severity, next_step, refs, queries in category_specs:
@@ -380,6 +466,7 @@ def _analyze_power(report_type: str, summary: dict[str, object]) -> list[dict[st
     dynamic = _float_value(summary.get("dynamic_power_w"))
     junction = _float_value(summary.get("junction_temperature_c"))
     margin = _float_value(summary.get("thermal_margin_c"))
+    confidence = str(summary.get("confidence_level") or "").lower()
     if margin is not None and margin < 5.0:
         issues.append(
             _issue(
@@ -422,6 +509,54 @@ def _analyze_power(report_type: str, summary: dict[str, object]) -> list[dict[st
                     ["Vivado report_power total on-chip power optimization"],
                 )
             )
+    if confidence in {"low", "medium"}:
+        issues.append(
+            _issue(
+                "power.low_confidence",
+                "medium" if confidence == "low" else "low",
+                report_type,
+                f"report_power confidence level is {confidence}",
+                "Improve switching activity inputs with SAIF/VCD or representative simulation before acting on power totals.",
+                "power",
+                ["UG907", "UG906"],
+                ["Vivado report_power confidence level SAIF VCD activity"],
+            )
+        )
+    return issues
+
+
+def _analyze_clock_interaction(report_type: str, summary: dict[str, object]) -> list[dict[str, object]]:
+    issues: list[dict[str, object]] = []
+    unsafe = _int_value(summary.get("unsafe_count")) or 0
+    no_common = _int_value(summary.get("no_common_clock_count")) or 0
+    partial = _int_value(summary.get("partial_count")) or 0
+    ignored = _int_value(summary.get("ignored_count")) or 0
+    if unsafe or no_common:
+        issues.append(
+            _issue(
+                "clock_interaction.unsafe",
+                "high",
+                report_type,
+                f"unsafe={unsafe}, no_common_clock={no_common}",
+                "Classify each clock pair and add valid generated clocks, clock groups, or timing exceptions.",
+                "timing",
+                ["UG906", "UG903", "UG949"],
+                ["Vivado report_clock_interaction unsafe no common clock"],
+            )
+        )
+    if partial or ignored:
+        issues.append(
+            _issue(
+                "clock_interaction.partial",
+                "medium",
+                report_type,
+                f"partial={partial}, ignored={ignored}",
+                "Inspect partial or ignored clock interaction coverage before assuming CDC paths are intentional.",
+                "timing",
+                ["UG906", "UG903", "UG949"],
+                ["Vivado report_clock_interaction partial ignored constraints"],
+            )
+        )
     return issues
 
 
@@ -455,18 +590,28 @@ def _issue_sort_key(issue: dict[str, object]) -> tuple[int, int, str]:
     priority_rank = {
         "drc.io_standard_missing": 0,
         "drc.io_pin_unconstrained": 0,
+        "drc.bitstream_blocker": 0,
         "drc.error": 0,
         "report.error": 0,
         "timing.unconstrained_paths": 1,
         "timing.setup_failed": 2,
+        "timing.path_slack_failed": 2,
         "timing.hold_failed": 3,
+        "timing.pulse_width_failed": 3,
+        "clock_interaction.unsafe": 4,
         "timing.clock_interaction_issue": 4,
+        "clock_interaction.partial": 4,
         "methodology.clocking_issue": 5,
+        "methodology.cdc_issue": 5,
+        "methodology.reset_issue": 6,
         "methodology.timing_issue": 6,
         "methodology.critical_warning": 7,
+        "utilization.io_pressure": 8,
+        "utilization.clock_buffer_pressure": 8,
         "utilization.resource_pressure": 8,
         "power.thermal_risk": 9,
         "power.high_total": 10,
+        "power.low_confidence": 11,
     }
     return (
         severity_rank.get(str(issue.get("severity")), 99),
@@ -509,12 +654,145 @@ def _official_references_for_issues(issues: list[dict[str, object]]) -> list[str
     return docs
 
 
+def _enrich_issue(issue: dict[str, object]) -> dict[str, object]:
+    issue_id = str(issue.get("issue_id") or "")
+    issue.setdefault("root_cause_hint", _root_cause_hint(issue_id))
+    issue.setdefault("next_tools", _next_tools_for_issue(issue_id))
+    issue.setdefault("blocked_flow_stages", _blocked_flow_stages(issue_id))
+    return issue
+
+
+def _root_cause_hint(issue_id: str) -> str:
+    hints = {
+        "drc.io_standard_missing": "Top-level ports are missing explicit IOSTANDARD constraints.",
+        "drc.io_pin_unconstrained": "Top-level ports are missing package pin/LOC constraints or include unused ports.",
+        "drc.bitstream_blocker": "Implementation reached a rule that blocks write_bitstream until fixed.",
+        "timing.unconstrained_paths": "Clock, generated-clock, IO-delay, XDC order, or exception coverage is incomplete.",
+        "clock_interaction.unsafe": "One or more clock pairs have unsafe or undefined timing relationships.",
+        "clock_interaction.partial": "Some clock-pair coverage is partial or ignored, so CDC intent may be ambiguous.",
+        "timing.setup_failed": "Worst setup paths violate required arrival time; inspect path composition before strategy changes.",
+        "timing.path_slack_failed": "A detailed timing path has negative slack; classify logic, routing, clock skew, or constraint cause.",
+        "timing.hold_failed": "Hold slack is negative; confirm clocking and IO delays before relying on implementation repair.",
+        "timing.pulse_width_failed": "Clock waveform or generated-clock definitions may violate pulse-width requirements.",
+        "timing.clock_interaction_issue": "Clock interaction warnings indicate missing or unsafe clock-domain relationships.",
+        "methodology.clocking_issue": "Methodology rules point at clock constraints, generated clocks, or CDC structure.",
+        "methodology.cdc_issue": "CDC structure or constraints need review before closure attempts.",
+        "methodology.reset_issue": "Reset topology, synchronization, or fanout may be harming timing or reliability.",
+        "methodology.timing_issue": "Methodology timing rules should be resolved before changing implementation strategy.",
+        "utilization.io_pressure": "The design is close to IO capacity; pinout or device/package selection may be the limit.",
+        "utilization.clock_buffer_pressure": "Clocking resources are close to capacity; clock topology may need consolidation.",
+        "utilization.resource_pressure": "A device resource is close to capacity and can limit placement/timing closure.",
+        "power.thermal_risk": "Thermal margin or junction temperature is risky under current activity assumptions.",
+        "power.high_total": "Total on-chip power is high enough to affect thermal and implementation decisions.",
+        "power.low_confidence": "Power estimates are based on weak activity data and need better simulation/activity input.",
+    }
+    return hints.get(issue_id, "Inspect the report artifact and related official documentation before rerunning.")
+
+
+def _next_tools_for_issue(issue_id: str) -> list[str]:
+    if issue_id.startswith("drc.io_") or issue_id in {"timing.unconstrained_paths", "timing.pulse_width_failed"}:
+        return ["vivado_constraint_diagnostics", "vivado_xdc_order_check", "vivado_report", "vivado_search_official_docs"]
+    if issue_id.startswith("clock_interaction") or issue_id == "timing.clock_interaction_issue":
+        return ["vivado_report", "vivado_constraint_diagnostics", "vivado_search_official_docs"]
+    if issue_id.startswith("timing."):
+        return ["vivado_report", "vivado_analyze_reports", "vivado_search_official_docs"]
+    if issue_id.startswith("utilization."):
+        return ["vivado_report", "vivado_project_summary", "vivado_search_official_docs"]
+    if issue_id.startswith("methodology."):
+        return ["vivado_report", "vivado_constraint_diagnostics", "vivado_search_official_docs"]
+    if issue_id.startswith("power."):
+        return ["vivado_report", "vivado_search_official_docs"]
+    return ["vivado_report", "vivado_search_official_docs", "vivado_tcl_command_help"]
+
+
+def _blocked_flow_stages(issue_id: str) -> list[str]:
+    if issue_id.startswith("drc.") and issue_id not in {"drc.error"}:
+        return ["bitstream"]
+    if issue_id.startswith(("timing.", "clock_interaction.", "methodology.")):
+        return ["timing_closure", "implementation_signoff"]
+    if issue_id.startswith("power.") and issue_id != "power.low_confidence":
+        return ["implementation_signoff"]
+    if issue_id.startswith("utilization."):
+        return ["placement", "implementation_signoff"]
+    return []
+
+
+def _quality_gates(issues: list[dict[str, object]]) -> dict[str, object]:
+    issue_ids = {str(issue.get("issue_id") or "") for issue in issues}
+    high_ids = {str(issue.get("issue_id") or "") for issue in issues if issue.get("severity") == "high"}
+    return {
+        "constraints_clean": not any(issue_id in issue_ids for issue_id in ("timing.unconstrained_paths", "drc.io_standard_missing", "drc.io_pin_unconstrained")),
+        "timing_clean": not any(issue_id.startswith(("timing.", "clock_interaction.")) for issue_id in high_ids),
+        "drc_clean": not any(issue_id.startswith("drc.") for issue_id in high_ids),
+        "power_clean": not any(issue_id.startswith("power.") for issue_id in high_ids),
+        "bitstream_ready": not any(issue_id.startswith("drc.") or issue_id.startswith("timing.") or issue_id.startswith("clock_interaction.") for issue_id in high_ids),
+    }
+
+
+def _next_action_plan(issues: list[dict[str, object]]) -> list[dict[str, object]]:
+    plan: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for issue in issues:
+        tools = issue.get("next_tools") if isinstance(issue.get("next_tools"), list) else []
+        tool = next((str(tool) for tool in tools if isinstance(tool, str)), "vivado_report")
+        if tool in seen:
+            continue
+        seen.add(tool)
+        plan.append(
+            {
+                "tool": tool,
+                "why": issue.get("next_step") or issue.get("root_cause_hint") or "Investigate the highest-priority report issue.",
+                "issue_id": issue.get("issue_id"),
+                "severity": issue.get("severity"),
+            }
+        )
+        if len(plan) >= 5:
+            break
+    if not any(row["tool"] == "vivado_search_official_docs" for row in plan):
+        plan.append({"tool": "vivado_search_official_docs", "why": "Open the official guidance linked by the highest-priority issues."})
+    return plan
+
+
+def _suggested_next_tools(issues: list[dict[str, object]]) -> list[str]:
+    tools: list[str] = []
+    for issue in issues:
+        for tool in issue.get("next_tools", []) if isinstance(issue.get("next_tools"), list) else []:
+            if isinstance(tool, str) and tool not in tools:
+                tools.append(tool)
+    for tool in ("vivado_report", "vivado_search_official_docs", "vivado_tcl_command_help"):
+        if tool not in tools:
+            tools.append(tool)
+    return tools[:8]
+
+
+def _utilization_issue_id(resource_class: str) -> str:
+    if resource_class == "io":
+        return "utilization.io_pressure"
+    if resource_class == "clocking":
+        return "utilization.clock_buffer_pressure"
+    return "utilization.resource_pressure"
+
+
+def _utilization_next_step(resource_class: str) -> str:
+    if resource_class == "io":
+        return "Inspect IO utilization, package pinout, unused ports, and whether the selected package has enough IO."
+    if resource_class == "clocking":
+        return "Inspect clock buffer/MMCM/PLL usage and consolidate generated or regional clocks where possible."
+    return "Inspect hierarchical utilization and consider resource sharing, retiming, or device/strategy changes."
+
+
 def _rule_category(rule: str, message: str) -> str:
     text = f"{rule} {message}".lower()
     if "nstd" in text or "iostandard" in text or "i/o standard" in text:
         return "io_standard_missing"
     if "ucio" in text or "unconstrained logical port" in text or "package_pin" in text:
         return "io_pin_unconstrained"
+    if "bitstream" in text or "write_bitstream" in text:
+        return "bitstream_blocker"
+    if "cdc" in text or "crossing" in text:
+        return "cdc"
+    if "reset" in text:
+        return "reset"
     if "clock" in text or "timing-1" in text or "cdc" in text:
         return "clocking"
     if "timing" in text or "wns" in text or "tns" in text:
@@ -559,6 +837,23 @@ def _infer_available(values: list[float]) -> int:
     if len(values) >= 5:
         return int(values[-2])
     return int(values[1])
+
+
+def _timing_path_sample(text: str) -> dict[str, object]:
+    fields: dict[str, object] = {}
+    patterns = {
+        "startpoint": r"Startpoint\s*:\s*([^\r\n]+)",
+        "endpoint": r"Endpoint\s*:\s*([^\r\n]+)",
+        "startpoint_clock": r"Startpoint\s+Clock\s*:\s*([^\r\n]+)",
+        "endpoint_clock": r"Endpoint\s+Clock\s*:\s*([^\r\n]+)",
+        "path_group": r"Path\s+Group\s*:\s*([^\r\n]+)",
+        "path_type": r"Path\s+Type\s*:\s*([^\r\n]+)",
+    }
+    for field, pattern in patterns.items():
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            fields[field] = match.group(1).strip()
+    return fields
 
 
 def _float_value(value: object) -> float | None:

@@ -26,7 +26,7 @@ Use this for ordinary Project Mode FPGA work: create/open a project, add files, 
 14. Call `vivado_xdc_order_check` and `vivado_constraint_diagnostics` to audit XDC fileset ordering, USED_IN scopes, and UG903/UG949 methodology markers before synthesis on non-trivial projects.
 15. Call `vivado_run_synthesis`.
 16. If synthesis succeeds, call `vivado_run_implementation`.
-17. Call `vivado_analyze_reports` for `timing_summary`, `utilization`, `drc`, `power`, and `methodology`; use the returned issue IDs, evidence, and `official_doc_queries` to choose the next action.
+17. Call `vivado_analyze_reports` for `timing_summary`, `timing_paths`, `clock_interaction`, `utilization`, `drc`, `power`, and `methodology`; use `quality_gates`, `next_action_plan`, issue IDs, evidence, root-cause hints, and `official_doc_queries` to choose the next action.
 18. Use targeted `vivado_report` calls only after the aggregate analysis points at the next failure area.
 19. Summarize WNS/TNS, utilization pressure, DRC/methodology rule IDs, power totals, and the first actionable errors.
 
@@ -35,7 +35,7 @@ Use this for ordinary Project Mode FPGA work: create/open a project, add files, 
 - Prefer workflow tools over raw Tcl for repeatable project operations.
 - Use `capture_diff=true` on source/fileset/top/property/IP/simulation/run operations when you need a before/after audit trail; read `state_diff.summary`, `changes`, and `recommendations` first.
 - Link raw logs and reports as resources instead of pasting entire logs.
-- If a run fails, inspect `vivado_analyze_reports` issues before retrying.
+- If a run fails, inspect `vivado_analyze_reports` `quality_gates`, `next_action_plan`, and issue `root_cause_hint` values before retrying.
 - Do not assume a timing failure is fixed by rerunning implementation; inspect timing reports first.
 
 ## Common Problems
@@ -50,4 +50,7 @@ Use this for ordinary Project Mode FPGA work: create/open a project, add files, 
 - `timing_failed`: call `vivado_analyze_reports`, then generate timing paths for the worst setup or hold failure.
 - `timing_unconstrained`: fix XDC clocks/order/scope before interpreting WNS/TNS.
 - `drc_io_constraint_missing`: resolve `drc.io_standard_missing` or `drc.io_pin_unconstrained` before bitstream generation.
+- `clock_interaction_unsafe`: resolve `clock_interaction.unsafe` before treating CDC/timing exceptions as intentional.
+- `methodology_cdc_or_reset`: resolve `methodology.cdc_issue` and `methodology.reset_issue` before implementation strategy tuning.
+- `power_low_confidence`: improve SAIF/VCD or representative activity before acting on power totals.
 - `power_thermal_risk`: inspect power activity assumptions, thermal margin, and UG907 guidance before closure decisions.

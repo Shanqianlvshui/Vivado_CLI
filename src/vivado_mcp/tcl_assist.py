@@ -142,6 +142,7 @@ COMMAND_DOC_TOPICS: dict[str, str] = {
     "report_drc": "reports",
     "report_messages": "reports",
     "report_power": "reports",
+    "report_clock_interaction": "reports",
     "report_timing": "reports",
     "report_timing_summary": "reports",
     "report_utilization": "reports",
@@ -427,6 +428,11 @@ COMMAND_COVERAGE: dict[str, dict[str, object]] = {
         "coverage_status": "partial",
         "recommended_tools": ["vivado_report"],
         "notes": "Use report_type='power' for the default report. Use Tcl for activity-file and advanced estimation options.",
+    },
+    "report_clock_interaction": {
+        "coverage_status": "partial",
+        "recommended_tools": ["vivado_report", "vivado_analyze_reports"],
+        "notes": "Use report_type='clock_interaction' for default clock-interaction diagnostics. Use Tcl for custom filters or formatting.",
     },
     "report_messages": {
         "coverage_status": "partial",
