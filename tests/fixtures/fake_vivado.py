@@ -25,7 +25,10 @@ def main() -> int:
     while time.time() < deadline:
         for command in sorted(inbox.glob("*.tcl")):
             target = running / command.name
-            command.rename(target)
+            try:
+                command.rename(target)
+            except PermissionError:
+                continue
             _write_status(session_dir, "busy", command.name)
             body = target.read_text(encoding="utf-8", errors="replace")
             result_path = done / f"{target.stem}.result.txt"
@@ -178,12 +181,18 @@ def _result_for(body: str) -> str:
                     "marker\tset_output_delay\t1",
                     "marker\tget_ports\t1",
                     "marker\tset_clock_groups\t0",
+                    "file_marker\tconstrs_1\tC:/fake/timing.xdc\t1\t0\t0\t0\t0",
+                    "file_marker\tconstrs_1\tC:/fake/pinout.xdc\t0\t0\t1\t1\t0",
                     "",
                 ]
             ),
             encoding="utf-8",
         )
         return f"constraint_diag={path}"
+    if "fileset_applied" in body or "set_property INCLUDE_DIRS" in body:
+        return "fileset_applied"
+    if "constraint_set_applied" in body or "current_fileset -constrset" in body or "reorder_files -fileset" in body:
+        return "constraint_set_applied"
     create_fileset_match = re.search(r"create_fileset -type \{[^}]+\} \{([^}]+)\}", body)
     if create_fileset_match:
         return f"fileset={create_fileset_match.group(1)}"

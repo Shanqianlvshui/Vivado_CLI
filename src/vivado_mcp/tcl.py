@@ -705,6 +705,82 @@ def set_top_tcl(*, top: str | None, fileset: str | None = None) -> str:
     )
 
 
+def fileset_apply_tcl(
+    *,
+    fileset: str,
+    include_dirs: list[Path] | None = None,
+    defines: list[str] | None = None,
+    top: str | None = None,
+    properties: dict[str, Any] | None = None,
+    update_compile_order: bool = True,
+) -> str:
+    if not fileset.strip():
+        raise ValueError("fileset_apply_tcl requires fileset")
+    target = f"[get_filesets {quote_tcl(fileset)}]"
+    lines = [
+        f"if {{[llength {target}] == 0}} {{ error [format {{Fileset not found: %s}} {quote_tcl(fileset)}] }}",
+    ]
+    if include_dirs is not None:
+        lines.append(f"set_property INCLUDE_DIRS [list {tcl_list(include_dirs)}] {target}")
+    if defines:
+        lines.append(f"set_property -dict [list {_property_list({f'DEFINE.{name}': '' for name in defines})}] {target}")
+    if top:
+        lines.append(f"set_property top {quote_tcl(top)} {target}")
+    if properties:
+        lines.append(f"set_property -dict [list {_property_list(properties)}] {target}")
+    if update_compile_order:
+        lines.append(f"update_compile_order -fileset {quote_tcl(fileset)}")
+    lines.append('return "fileset_applied"')
+    return "\n".join(lines)
+
+
+def constraint_set_apply_tcl(
+    *,
+    fileset: str,
+    create_if_missing: bool = False,
+    add: list[Path] | None = None,
+    remove: list[Path] | None = None,
+    used_in: list[str] | None = None,
+    reorder: list[Path] | None = None,
+    active: bool | None = None,
+) -> str:
+    if not fileset.strip():
+        raise ValueError("constraint_set_apply_tcl requires fileset")
+    lines = [
+        f"set mcp_constr_fs [get_filesets -quiet {quote_tcl(fileset)}]",
+        "if {[llength $mcp_constr_fs] == 0} {",
+    ]
+    if create_if_missing:
+        lines.append(f"  set mcp_constr_fs [create_fileset -type {quote_tcl('constrs')} {quote_tcl(fileset)}]")
+    else:
+        lines.append(f"  error [format {{Constraint fileset not found: %s}} {quote_tcl(fileset)}]")
+    lines.extend(["}", "set mcp_constr_fs [get_filesets $mcp_constr_fs]"])
+    if add:
+        lines.append(f"add_files -fileset {quote_tcl(fileset)} [list {tcl_list(add)}]")
+    if remove:
+        lines.append(f"remove_files -fileset {quote_tcl(fileset)} [list {tcl_list(remove)}]")
+    if used_in is not None:
+        scopes = set(used_in)
+        for scope, prop in (
+            ("synthesis", "IS_ENABLED_SYNTHESIS"),
+            ("simulation", "IS_ENABLED_SIMULATION"),
+            ("implementation", "IS_ENABLED_IMPLEMENTATION"),
+        ):
+            value = 1 if scope in scopes else 0
+            lines.append(f"set_property {prop} {value} [get_filesets {quote_tcl(fileset)}]")
+    if reorder:
+        for index, path in enumerate(reorder):
+            if index == 0:
+                lines.append(f"reorder_files -fileset {quote_tcl(fileset)} -before [lindex [get_files -of [get_filesets {quote_tcl(fileset)}]] 0] [get_files {quote_tcl(path)}]")
+            else:
+                previous = reorder[index - 1]
+                lines.append(f"reorder_files -fileset {quote_tcl(fileset)} -after [get_files {quote_tcl(previous)}] [get_files {quote_tcl(path)}]")
+    if active is True:
+        lines.append(f"current_fileset -constrset [get_filesets {quote_tcl(fileset)}]")
+    lines.append('return "constraint_set_applied"')
+    return "\n".join(lines)
+
+
 def constraint_diagnostics_tcl(output_path: Path) -> str:
     """Emit a TSV that audits XDC constraint files in the current project.
 
@@ -768,18 +844,24 @@ def constraint_diagnostics_tcl(output_path: Path) -> str:
             "    set fh [open $file r]",
             "    set mcp_contents [read $fh]",
             "    close $fh",
+            "    set mcp_file_has_create_clock 0",
+            "    set mcp_file_has_false_path 0",
+            "    set mcp_file_has_input_delay 0",
+            "    set mcp_file_has_output_delay 0",
+            "    set mcp_file_has_clock_groups 0",
             "    foreach pattern {create_clock set_false_path set_input_delay set_output_delay get_ports set_clock_groups} {",
             "      if {[regexp -- $pattern $mcp_contents]} {",
             "        switch -- $pattern {",
-            "          create_clock { set mcp_xdc_has_create_clock 1 }",
-            "          set_false_path { set mcp_xdc_has_false_path 1 }",
-            "          set_input_delay { set mcp_xdc_has_input_delay 1 }",
-            "          set_output_delay { set mcp_xdc_has_output_delay 1 }",
+            "          create_clock { set mcp_xdc_has_create_clock 1; set mcp_file_has_create_clock 1 }",
+            "          set_false_path { set mcp_xdc_has_false_path 1; set mcp_file_has_false_path 1 }",
+            "          set_input_delay { set mcp_xdc_has_input_delay 1; set mcp_file_has_input_delay 1 }",
+            "          set_output_delay { set mcp_xdc_has_output_delay 1; set mcp_file_has_output_delay 1 }",
             "          get_ports { set mcp_xdc_has_get_ports 1 }",
-            "          set_clock_groups { set mcp_xdc_has_clock_groups 1 }",
+            "          set_clock_groups { set mcp_xdc_has_clock_groups 1; set mcp_file_has_clock_groups 1 }",
             "        }",
             "      }",
             "    }",
+            "    mcp_put $f file_marker $fs $file $mcp_file_has_create_clock $mcp_file_has_false_path $mcp_file_has_input_delay $mcp_file_has_output_delay $mcp_file_has_clock_groups",
             "  }",
             "}",
             "mcp_put $f marker create_clock $mcp_xdc_has_create_clock",

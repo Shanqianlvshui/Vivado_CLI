@@ -1,4 +1,4 @@
-from vivado_mcp.help_skills import get_skill, help_topic, list_skills, skills_index
+from vivado_mcp.help_skills import get_skill, help_topic, list_skills, skills_index, suggest_next_steps
 import vivado_mcp.official_docs as official_docs
 from vivado_mcp.official_docs import (
     DEFAULT_LOCAL_DOCS_ROOT,
@@ -47,7 +47,24 @@ def test_help_topic_points_to_skill() -> None:
 
     project_help = help_topic("project")
     assert "vivado_capture_state" in project_help["recommended_tools"]
+    assert "vivado_source_audit" in project_help["recommended_tools"]
     assert "vivado_state_diff" in project_help["recommended_tools"]
+
+    fileset_help = help_topic("xdc")
+    assert fileset_help["related_resources"] == ["vivado://skills/fileset-constraint-flow"]
+    assert "vivado_source_audit" in fileset_help["recommended_tools"]
+    assert "vivado_fileset_apply" in fileset_help["recommended_tools"]
+    assert "vivado_constraint_set_apply" in fileset_help["recommended_tools"]
+    assert "vivado_xdc_order_check" in fileset_help["recommended_tools"]
+
+
+def test_suggest_next_steps_routes_fileset_and_constraint_work() -> None:
+    result = suggest_next_steps(goal="fix XDC order and set top/include dirs", has_session=True, has_project=True)
+    tools = [row["tool"] for row in result["recommendations"]]
+
+    assert tools[:3] == ["vivado_source_audit", "vivado_list_filesets", "vivado_describe_fileset"]
+    assert "vivado_constraint_set_apply" in tools
+    assert result["related_resources"] == ["vivado://skills/fileset-constraint-flow"]
 
 
 def test_skills_index_contains_resource_uris() -> None:

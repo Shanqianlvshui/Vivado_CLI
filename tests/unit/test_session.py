@@ -396,6 +396,44 @@ def test_fileset_and_source_workflow_returns_structured_state(tmp_path: Path) ->
     assert diagnostics["xdc_markers"]["create_clock"] == 1
     assert diagnostics["xdc_markers"]["set_input_delay"] == 1
     assert diagnostics["xdc_markers"]["get_ports"] == 1
+    assert diagnostics["xdc_file_markers"][0]["path"].endswith("timing.xdc")
+
+    audit = manager.source_audit(session_ref=session_ref, timeout_seconds=5)
+    assert audit["ok"] is True
+    assert audit["audit"]["summary"]["fileset_count"] >= 1
+    assert audit["audit_artifact_uri"].startswith(f"vivado://sessions/{session_ref}/artifacts/")
+
+    order = manager.xdc_order_check(session_ref=session_ref, timeout_seconds=5)
+    assert order["ok"] is True
+    assert "constrs_1" in order["order"]["filesets"]
+
+    applied_fileset = manager.fileset_apply(
+        session_ref=session_ref,
+        fileset="sources_1",
+        include_dirs=[str(tmp_path / "include")],
+        defines=["DEBUG=1"],
+        top="alu",
+        timeout_seconds=5,
+        capture_diff=True,
+    )
+    assert applied_fileset["ok"] is True
+    assert applied_fileset["result"] == "fileset_applied"
+    assert applied_fileset["state_diff"]["ok"] is True
+
+    applied_constraints = manager.constraint_set_apply(
+        session_ref=session_ref,
+        fileset="constrs_extra",
+        create_if_missing=True,
+        add=[str(timing_xdc)],
+        used_in=["synthesis", "implementation"],
+        reorder=[str(timing_xdc)],
+        active=True,
+        timeout_seconds=5,
+        capture_diff=True,
+    )
+    assert applied_constraints["ok"] is True
+    assert applied_constraints["result"] == "constraint_set_applied"
+    assert applied_constraints["state_diff"]["ok"] is True
 
     manager.stop_session(session_ref, timeout_seconds=5)
 

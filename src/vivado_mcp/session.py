@@ -626,26 +626,10 @@ class VivadoSessionManager:
         name: str,
         timeout_seconds: int = 60,
     ) -> dict[str, object]:
-        from .fileset_summary import parse_describe_fileset
-        from .tcl import describe_fileset_tcl
-
         if not name.strip():
             raise ValueError("fileset name must not be empty")
         running = self._get(session_ref)
-        summaries_dir = running.record.session_dir / "summaries"
-        summaries_dir.mkdir(parents=True, exist_ok=True)
-        output_path = summaries_dir / f"fileset_desc_{uuid.uuid4().hex[:8]}.tsv"
-        raw_result = self._submit_tcl(
-            running,
-            describe_fileset_tcl(output_path, name=name),
-            timeout_seconds=timeout_seconds,
-        )
-        result = _result_to_dict(raw_result, expect_destructive=False)
-        result["summary_path"] = str(output_path)
-        result["summary_artifact_uri"] = artifact_uri(session_ref, output_path.relative_to(running.record.session_dir).as_posix())
-        if output_path.exists():
-            result["fileset_summary"] = parse_describe_fileset(output_path)
-        return result
+        return self._describe_fileset_for_running(running, name=name, timeout_seconds=timeout_seconds)
 
     def constraint_diagnostics(
         self,
@@ -671,6 +655,167 @@ class VivadoSessionManager:
         if output_path.exists():
             result["diagnostics"] = parse_constraint_diagnostics(output_path)
         return result
+
+    def source_audit(
+        self,
+        *,
+        session_ref: str,
+        filesets: list[str] | None = None,
+        timeout_seconds: int = 120,
+    ) -> dict[str, object]:
+        from .fileset_summary import analyze_source_audit
+
+        running = self._get(session_ref)
+        project = self._project_summary_for_running(running, timeout_seconds=timeout_seconds)
+        fileset_list = self._list_filesets_for_running(running, timeout_seconds=timeout_seconds)
+        constraints = self._constraint_diagnostics_for_running(running, timeout_seconds=timeout_seconds)
+        available = fileset_list.get("filesets", {})
+        selected_names = filesets or [
+            str(row.get("name"))
+            for row in available.get("filesets", [])
+            if isinstance(row, dict) and str(row.get("type") or "") in {"Source", "Simulation", "Constrs"}
+        ]
+        described: list[dict[str, object]] = []
+        describe_errors: list[dict[str, object]] = []
+        for name in selected_names:
+            try:
+                desc = self._describe_fileset_for_running(running, name=name, timeout_seconds=timeout_seconds)
+            except Exception as exc:
+                describe_errors.append({"fileset": name, "error": str(exc)})
+                continue
+            if "fileset_summary" in desc:
+                described.append(desc["fileset_summary"])
+        audit = analyze_source_audit(
+            project.get("project_summary", {}),
+            available,
+            described,
+            constraints.get("diagnostics", {}),
+        )
+        if describe_errors:
+            audit.setdefault("issues", []).append(
+                {
+                    "issue_id": "fileset.describe_failed",
+                    "severity": "medium",
+                    "filesets": describe_errors,
+                }
+            )
+        audits_dir = running.record.session_dir / "audits"
+        audits_dir.mkdir(parents=True, exist_ok=True)
+        output_path = audits_dir / f"source_audit_{uuid.uuid4().hex[:8]}.json"
+        output_path.write_text(json.dumps(audit, indent=2, sort_keys=True), encoding="utf-8")
+        return {
+            "ok": True,
+            "session_ref": session_ref,
+            "audit": audit,
+            "audit_path": str(output_path),
+            "audit_artifact_uri": artifact_uri(session_ref, output_path.relative_to(running.record.session_dir).as_posix()),
+            "project_summary_artifact_uri": project.get("summary_artifact_uri"),
+            "filesets_summary_artifact_uri": fileset_list.get("summary_artifact_uri"),
+            "constraint_diagnostics_artifact_uri": constraints.get("summary_artifact_uri"),
+        }
+
+    def xdc_order_check(self, *, session_ref: str, timeout_seconds: int = 120) -> dict[str, object]:
+        from .fileset_summary import analyze_xdc_order
+
+        running = self._get(session_ref)
+        diagnostics = self._constraint_diagnostics_for_running(running, timeout_seconds=timeout_seconds)
+        order = analyze_xdc_order(diagnostics.get("diagnostics", {}))
+        audits_dir = running.record.session_dir / "audits"
+        audits_dir.mkdir(parents=True, exist_ok=True)
+        output_path = audits_dir / f"xdc_order_{uuid.uuid4().hex[:8]}.json"
+        output_path.write_text(json.dumps(order, indent=2, sort_keys=True), encoding="utf-8")
+        return {
+            "ok": True,
+            "session_ref": session_ref,
+            "order": order,
+            "order_path": str(output_path),
+            "order_artifact_uri": artifact_uri(session_ref, output_path.relative_to(running.record.session_dir).as_posix()),
+            "constraint_diagnostics_artifact_uri": diagnostics.get("summary_artifact_uri"),
+        }
+
+    def fileset_apply(
+        self,
+        *,
+        session_ref: str,
+        fileset: str,
+        include_dirs: list[str] | None = None,
+        defines: list[str] | None = None,
+        top: str | None = None,
+        properties: dict[str, object] | None = None,
+        update_compile_order: bool = True,
+        timeout_seconds: int = 120,
+        capture_diff: bool = False,
+    ) -> dict[str, object]:
+        from .tcl import fileset_apply_tcl
+
+        include_paths = [
+            self.path_policy.require_under_roots(path, label="include_dir", must_exist=False) for path in include_dirs or []
+        ]
+        running = self._get(session_ref)
+        return self._capture_diff_around(
+            running=running,
+            label="fileset_apply",
+            capture_diff=capture_diff,
+            timeout_seconds=timeout_seconds,
+            operation=lambda: _result_to_dict(
+                self._submit_tcl(
+                    running,
+                    fileset_apply_tcl(
+                        fileset=fileset,
+                        include_dirs=include_paths,
+                        defines=defines,
+                        top=top,
+                        properties=properties,
+                        update_compile_order=update_compile_order,
+                    ),
+                    timeout_seconds=timeout_seconds,
+                ),
+                expect_destructive=True,
+            ),
+        )
+
+    def constraint_set_apply(
+        self,
+        *,
+        session_ref: str,
+        fileset: str,
+        create_if_missing: bool = False,
+        add: list[str] | None = None,
+        remove: list[str] | None = None,
+        used_in: list[str] | None = None,
+        reorder: list[str] | None = None,
+        active: bool | None = None,
+        timeout_seconds: int = 120,
+        capture_diff: bool = False,
+    ) -> dict[str, object]:
+        from .tcl import constraint_set_apply_tcl
+
+        add_paths = [self.path_policy.require_under_roots(path, label="constraint", must_exist=True) for path in add or []]
+        remove_paths = [self.path_policy.require_under_roots(path, label="constraint", must_exist=True) for path in remove or []]
+        reorder_paths = [self.path_policy.require_under_roots(path, label="constraint", must_exist=True) for path in reorder or []]
+        running = self._get(session_ref)
+        return self._capture_diff_around(
+            running=running,
+            label="constraint_set_apply",
+            capture_diff=capture_diff,
+            timeout_seconds=timeout_seconds,
+            operation=lambda: _result_to_dict(
+                self._submit_tcl(
+                    running,
+                    constraint_set_apply_tcl(
+                        fileset=fileset,
+                        create_if_missing=create_if_missing,
+                        add=add_paths,
+                        remove=remove_paths,
+                        used_in=used_in,
+                        reorder=reorder_paths,
+                        active=active,
+                    ),
+                    timeout_seconds=timeout_seconds,
+                ),
+                expect_destructive=True,
+            ),
+        )
 
     def bd_open_or_create(
         self,
@@ -1001,6 +1146,25 @@ class VivadoSessionManager:
         result["summary_artifact_uri"] = artifact_uri(running.record.session_ref, output_path.relative_to(running.record.session_dir).as_posix())
         if output_path.exists():
             result["filesets"] = parse_list_filesets(output_path)
+        return result
+
+    def _describe_fileset_for_running(self, running: "_RunningSession", *, name: str, timeout_seconds: int) -> dict[str, object]:
+        from .fileset_summary import parse_describe_fileset
+        from .tcl import describe_fileset_tcl
+
+        summaries_dir = running.record.session_dir / "summaries"
+        summaries_dir.mkdir(parents=True, exist_ok=True)
+        output_path = summaries_dir / f"fileset_desc_{uuid.uuid4().hex[:8]}.tsv"
+        raw_result = self._submit_tcl(
+            running,
+            describe_fileset_tcl(output_path, name=name),
+            timeout_seconds=timeout_seconds,
+        )
+        result = _result_to_dict(raw_result, expect_destructive=False)
+        result["summary_path"] = str(output_path)
+        result["summary_artifact_uri"] = artifact_uri(running.record.session_ref, output_path.relative_to(running.record.session_dir).as_posix())
+        if output_path.exists():
+            result["fileset_summary"] = parse_describe_fileset(output_path)
         return result
 
     def _constraint_diagnostics_for_running(self, running: "_RunningSession", *, timeout_seconds: int) -> dict[str, object]:

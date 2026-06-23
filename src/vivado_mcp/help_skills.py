@@ -116,7 +116,11 @@ def help_topic(topic: str | None = None) -> dict[str, object]:
             "recommended_tools": [
                 "vivado_create_project",
                 "vivado_capture_state",
+                "vivado_source_audit",
                 "vivado_add_sources",
+                "vivado_fileset_apply",
+                "vivado_constraint_set_apply",
+                "vivado_xdc_order_check",
                 "vivado_state_diff",
                 "vivado_run_synthesis",
                 "vivado_report",
@@ -135,6 +139,33 @@ def help_topic(topic: str | None = None) -> dict[str, object]:
                 "vivado_bd_generate",
             ],
             "related_resources": ["vivado://skills/block-design-flow"],
+        }
+    if normalized in {
+        "fileset",
+        "filesets",
+        "source",
+        "sources",
+        "constraint",
+        "constraints",
+        "xdc",
+        "fileset-constraint",
+        "fileset-constraint-flow",
+        "constraint-flow",
+        "source-flow",
+    }:
+        return {
+            "topic": "fileset_constraint_flow",
+            "summary": "Audit and manage Vivado filesets, source settings, top module, constraint sets, and XDC loading order with structured tools before expert Tcl.",
+            "recommended_tools": [
+                "vivado_source_audit",
+                "vivado_list_filesets",
+                "vivado_describe_fileset",
+                "vivado_fileset_apply",
+                "vivado_constraint_set_apply",
+                "vivado_xdc_order_check",
+                "vivado_constraint_diagnostics",
+            ],
+            "related_resources": ["vivado://skills/fileset-constraint-flow"],
         }
     if normalized in {"raw-tcl", "tcl", "expert"}:
         return {
@@ -190,6 +221,36 @@ def suggest_next_steps(
                 {"tool": "vivado_list_official_references", "why": "Search the packaged official-document catalog by topic or keyword."},
             ],
             "related_resources": ["vivado://official-docs/index", "vivado://skills/official-docs-reference"],
+        }
+    if any(
+        word in text
+        for word in (
+            "fileset",
+            "filesets",
+            "constraint",
+            "constraints",
+            "xdc",
+            "top",
+            "include dir",
+            "include_dirs",
+            "define",
+            "defines",
+            "library",
+            "used_in",
+            "used in",
+        )
+    ):
+        return {
+            "recommendations": [
+                {"tool": "vivado_source_audit", "why": "Audit top module, duplicate files, source/constraint scope, and missing clock markers before changing project state."},
+                {"tool": "vivado_list_filesets", "why": "List source, simulation, and constraint sets with file counts, top values, and USED_IN flags."},
+                {"tool": "vivado_describe_fileset", "why": "Inspect the specific fileset files, libraries, properties, and processing order."},
+                {"tool": "vivado_fileset_apply", "why": "Set include directories, defines, top module, and fileset properties through a structured tool."},
+                {"tool": "vivado_constraint_set_apply", "why": "Create/update constraint sets, add/remove/reorder XDC files, and set USED_IN scopes through a structured tool."},
+                {"tool": "vivado_xdc_order_check", "why": "Check XDC order and flag exception/input/output constraints that appear before clock definitions."},
+                {"tool": "vivado_constraint_diagnostics", "why": "Collect raw constraint fileset diagnostics and XDC command markers for deeper review."},
+            ],
+            "related_resources": ["vivado://skills/fileset-constraint-flow"],
         }
     if "tcl" in text:
         return {

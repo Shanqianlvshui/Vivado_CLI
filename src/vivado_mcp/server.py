@@ -347,6 +347,76 @@ def vivado_constraint_diagnostics(session_ref: str, timeout_seconds: int = 120) 
 
 
 @mcp.tool()
+def vivado_source_audit(
+    session_ref: str,
+    filesets: list[str] | None = None,
+    timeout_seconds: int = 120,
+) -> dict[str, object]:
+    """Audit project sources, filesets, top, duplicate files, and constraint placement."""
+    return manager.source_audit(session_ref=session_ref, filesets=filesets, timeout_seconds=timeout_seconds)
+
+
+@mcp.tool()
+def vivado_xdc_order_check(session_ref: str, timeout_seconds: int = 120) -> dict[str, object]:
+    """Check XDC load order and flag exceptions or I/O delays that appear before clocks."""
+    return manager.xdc_order_check(session_ref=session_ref, timeout_seconds=timeout_seconds)
+
+
+@mcp.tool()
+def vivado_fileset_apply(
+    session_ref: str,
+    fileset: str,
+    include_dirs: list[str] | None = None,
+    defines: list[str] | None = None,
+    top: str | None = None,
+    properties: dict[str, object] | None = None,
+    update_compile_order: bool = True,
+    timeout_seconds: int = 120,
+    capture_diff: bool = False,
+) -> dict[str, object]:
+    """Apply common fileset-level source settings: include dirs, defines, top, and properties."""
+    return manager.fileset_apply(
+        session_ref=session_ref,
+        fileset=fileset,
+        include_dirs=include_dirs,
+        defines=defines,
+        top=top,
+        properties=properties,
+        update_compile_order=update_compile_order,
+        timeout_seconds=timeout_seconds,
+        capture_diff=capture_diff,
+    )
+
+
+@mcp.tool()
+def vivado_constraint_set_apply(
+    session_ref: str,
+    fileset: str,
+    create_if_missing: bool = False,
+    add: list[str] | None = None,
+    remove: list[str] | None = None,
+    used_in: list[Literal["synthesis", "simulation", "implementation"]] | None = None,
+    reorder: list[str] | None = None,
+    active: bool | None = None,
+    timeout_seconds: int = 120,
+    capture_diff: bool = False,
+) -> dict[str, object]:
+    """Create/update a constraint fileset: add/remove XDC, set USED_IN scopes, reorder, or activate."""
+    return manager.constraint_set_apply(
+        session_ref=session_ref,
+        fileset=fileset,
+        create_if_missing=create_if_missing,
+        add=add,
+        remove=remove,
+        used_in=used_in,
+        reorder=reorder,
+        active=active,
+        timeout_seconds=timeout_seconds,
+        capture_diff=capture_diff,
+    )
+
+
+@mcp.tool()
 def vivado_bd_open_or_create(
     session_ref: str,
     design_name: str | None = None,

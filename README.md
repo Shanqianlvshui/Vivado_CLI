@@ -21,8 +21,9 @@ Current design documents:
 - Submit raw Tcl to a managed session when trusted-local expert mode is enabled.
 - Create or open project-mode Vivado projects.
 - Add RTL/source/constraint files with path validation.
-- Manage Vivado filesets (sources / simulation / constraint sets) including include directories, defines, libraries, file properties, top module, and USED_IN scopes.
-- Audit XDC constraint filesets: loading order, USED_IN scopes, methodology markers, and basic UG903/UG949 sanity warnings.
+- Audit and manage Vivado filesets (sources / simulation / constraint sets) including include directories, defines, libraries, file properties, top module, and USED_IN scopes.
+- Apply structured source-fileset and constraint-set changes with optional before/after state diffs.
+- Audit XDC constraint filesets: loading order, per-file command markers, USED_IN scopes, methodology markers, and basic UG903/UG949 sanity warnings.
 - Create, inspect, mutate, validate, and generate generic IP Integrator block designs.
 - Run synthesis, implementation, and bitstream generation.
 - Generate timing, utilization, DRC, and message reports.
@@ -112,13 +113,14 @@ AI clients should use the MCP in this order:
 3. Call `vivado_get_official_reference(doc_id=...)` for the exact official URL and local PDF candidates under `C:\Database\FPGA\Vivado_docs`.
 4. If local PDFs are missing, call `vivado_sync_official_docs` for the packaged Vivado catalog or `vivado_download_xilinx_pdf` for a specific AMD/Xilinx PDF.
 5. Call `vivado_search_official_docs(query=..., doc_id=... or topic=...)` for exact command names, options, and short local PDF snippets.
-6. Prefer structured workflow tools such as project, report, and BD tools when they cover the task.
-7. Call `vivado_tcl_command_help(command=...)` before unfamiliar Tcl commands; it combines official search, MCP tool coverage, and optional installed Vivado help.
-8. Call `vivado_review_tcl(tcl=...)` before expert-mode execution.
-9. Use `vivado_run_tcl` or `vivado_source_tcl` only for commands that are not yet modeled as workflow tools; set `expect_destructive=true` when the review requires it.
-10. For risky or long-running changes, call `vivado_capture_state` before/after and `vivado_state_diff`, or pass `capture_diff=true` to supported mutating tools.
-11. After every mutating action, call `vivado_project_summary`, `vivado_bd_summary`, `vivado_report`, or `vivado_list_artifacts` to inspect the resulting state.
-12. Call `vivado_focus_gui` only when the user explicitly wants Vivado brought to the foreground.
+6. Prefer structured workflow tools such as project, source/fileset/constraint, report, and BD tools when they cover the task.
+7. For complex source or XDC work, call `vivado_source_audit` first, then use `vivado_fileset_apply`, `vivado_constraint_set_apply`, and `vivado_xdc_order_check` before falling back to expert Tcl.
+8. Call `vivado_tcl_command_help(command=...)` before unfamiliar Tcl commands; it combines official search, MCP tool coverage, and optional installed Vivado help.
+9. Call `vivado_review_tcl(tcl=...)` before expert-mode execution.
+10. Use `vivado_run_tcl` or `vivado_source_tcl` only for commands that are not yet modeled as workflow tools; set `expect_destructive=true` when the review requires it.
+11. For risky or long-running changes, call `vivado_capture_state` before/after and `vivado_state_diff`, or pass `capture_diff=true` to supported mutating tools.
+12. After every mutating action, call `vivado_project_summary`, `vivado_bd_summary`, `vivado_report`, or `vivado_list_artifacts` to inspect the resulting state.
+13. Call `vivado_focus_gui` only when the user explicitly wants Vivado brought to the foreground.
 
 ## First Manual Test
 
@@ -160,6 +162,10 @@ After connecting the MCP client, use this sequence:
 - `vivado_create_fileset`
 - `vivado_describe_fileset`
 - `vivado_constraint_diagnostics`
+- `vivado_source_audit`
+- `vivado_xdc_order_check`
+- `vivado_fileset_apply`
+- `vivado_constraint_set_apply`
 - `vivado_bd_open_or_create`
 - `vivado_bd_summary`
 - `vivado_bd_apply`

@@ -2,7 +2,16 @@ from pathlib import Path
 
 import pytest
 
-from vivado_mcp.tcl import bd_apply_tcl, bd_generate_tcl, bd_open_or_create_tcl, create_project_tcl, quote_tcl, report_tcl
+from vivado_mcp.tcl import (
+    bd_apply_tcl,
+    bd_generate_tcl,
+    bd_open_or_create_tcl,
+    constraint_set_apply_tcl,
+    create_project_tcl,
+    fileset_apply_tcl,
+    quote_tcl,
+    report_tcl,
+)
 
 
 def test_quote_tcl_normalizes_windows_paths() -> None:
@@ -65,3 +74,39 @@ def test_bd_generate_tcl_can_skip_wrapper() -> None:
 
     assert "generate_target {synthesis}" in script
     assert "make_wrapper" not in script
+
+
+def test_fileset_apply_tcl_sets_common_fileset_properties() -> None:
+    script = fileset_apply_tcl(
+        fileset="sources_1",
+        include_dirs=[Path("C:/demo/include")],
+        defines=["DEBUG=1", "BOARD=arty"],
+        top="top",
+        properties={"LIBRARY": "xil_defaultlib"},
+        update_compile_order=True,
+    )
+
+    assert "set_property INCLUDE_DIRS [list {C:/demo/include}] [get_filesets {sources_1}]" in script
+    assert "error [format {Fileset not found: %s} {sources_1}]" in script
+    assert "{DEFINE.DEBUG=1} {} {DEFINE.BOARD=arty} {}" in script
+    assert "set_property top {top} [get_filesets {sources_1}]" in script
+    assert "update_compile_order -fileset {sources_1}" in script
+
+
+def test_constraint_set_apply_tcl_creates_adds_and_reorders_xdc() -> None:
+    script = constraint_set_apply_tcl(
+        fileset="constrs_extra",
+        create_if_missing=True,
+        add=[Path("C:/demo/clocks.xdc"), Path("C:/demo/pins.xdc")],
+        remove=[],
+        used_in=["synthesis", "implementation"],
+        reorder=[Path("C:/demo/pins.xdc"), Path("C:/demo/clocks.xdc")],
+        active=True,
+    )
+
+    assert "create_fileset -type {constrs} {constrs_extra}" in script
+    assert "add_files -fileset {constrs_extra} [list {C:/demo/clocks.xdc} {C:/demo/pins.xdc}]" in script
+    assert "error [format {Constraint fileset not found: %s} {constrs_extra}]" not in script
+    assert "set_property IS_ENABLED_SYNTHESIS 1 [get_filesets {constrs_extra}]" in script
+    assert "reorder_files -fileset {constrs_extra} -before" in script
+    assert "current_fileset -constrset [get_filesets {constrs_extra}]" in script
