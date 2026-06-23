@@ -457,6 +457,22 @@ def vivado_bd_summary(
 
 
 @mcp.tool()
+def vivado_bd_audit(
+    session_ref: str,
+    design_name: str | None = None,
+    bd_path: str | None = None,
+    timeout_seconds: int = 120,
+) -> dict[str, object]:
+    """Audit block design validation, connectivity, address, and interface state."""
+    return manager.bd_audit(
+        session_ref=session_ref,
+        design_name=design_name,
+        bd_path=bd_path,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+@mcp.tool()
 def vivado_bd_apply(
     session_ref: str,
     actions: list[dict[str, object]],
@@ -466,8 +482,9 @@ def vivado_bd_apply(
     save: bool = True,
     timeout_seconds: int = 300,
     capture_diff: bool = False,
+    dry_run: bool = False,
 ) -> dict[str, object]:
-    """Apply generic IP Integrator actions such as creating cells/ports, setting properties, and connecting nets."""
+    """Apply generic IP Integrator actions, or return a dry-run plan and Tcl preview."""
     return manager.bd_apply(
         session_ref=session_ref,
         actions=actions,
@@ -477,6 +494,7 @@ def vivado_bd_apply(
         save=save,
         timeout_seconds=timeout_seconds,
         capture_diff=capture_diff,
+        dry_run=dry_run,
     )
 
 

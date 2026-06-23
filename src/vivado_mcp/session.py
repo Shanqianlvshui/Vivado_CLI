@@ -901,6 +901,30 @@ class VivadoSessionManager:
             result["bd_summary"] = parse_bd_summary(output_path)
         return result
 
+    def bd_audit(
+        self,
+        *,
+        session_ref: str,
+        design_name: str | None = None,
+        bd_path: str | None = None,
+        timeout_seconds: int = 120,
+    ) -> dict[str, object]:
+        from .bd_summary import analyze_bd_audit
+
+        summary = self.bd_summary(
+            session_ref=session_ref,
+            design_name=design_name,
+            bd_path=bd_path,
+            validate=True,
+            timeout_seconds=timeout_seconds,
+        )
+        bd_state = summary.get("bd_summary") if isinstance(summary.get("bd_summary"), dict) else {}
+        audit = analyze_bd_audit(bd_state)
+        audit["session_ref"] = session_ref
+        audit["summary_path"] = summary.get("summary_path", "")
+        audit["summary_artifact_uri"] = summary.get("summary_artifact_uri", "")
+        return audit
+
     def bd_apply(
         self,
         *,
@@ -912,6 +936,7 @@ class VivadoSessionManager:
         save: bool = True,
         timeout_seconds: int = 300,
         capture_diff: bool = False,
+        dry_run: bool = False,
     ) -> dict[str, object]:
         from .tcl import bd_apply_tcl
 
@@ -919,6 +944,20 @@ class VivadoSessionManager:
             raise ValueError("actions must contain at least one BD action")
         running = self._get(session_ref)
         resolved_bd_path = self.path_policy.require_under_roots(bd_path, label="bd_path", must_exist=True) if bd_path else None
+        if dry_run:
+            return {
+                "ok": True,
+                "session_ref": session_ref,
+                "dry_run": True,
+                "expect_destructive": True,
+                "plan": _bd_apply_plan(
+                    actions=actions,
+                    design_name=design_name,
+                    bd_path=resolved_bd_path,
+                    validate=validate,
+                    save=save,
+                ),
+            }
         return self._capture_diff_around(
             running=running,
             label="bd_apply",
@@ -943,6 +982,7 @@ class VivadoSessionManager:
         save: bool = False,
         timeout_seconds: int = 120,
     ) -> dict[str, object]:
+        from .bd_summary import parse_bd_validate_result
         from .tcl import bd_validate_tcl
 
         running = self._get(session_ref)
@@ -952,7 +992,9 @@ class VivadoSessionManager:
             bd_validate_tcl(design_name=design_name, bd_path=resolved_bd_path, save=save),
             timeout_seconds=timeout_seconds,
         )
-        return _result_to_dict(raw_result, expect_destructive=save)
+        result = _result_to_dict(raw_result, expect_destructive=save)
+        result["validation"] = parse_bd_validate_result(str(result.get("result") or ""))
+        return result
 
     def bd_generate(
         self,
@@ -2197,6 +2239,60 @@ def _report_type_from_artifact(path: Path) -> str:
     if "timing" in name:
         return "timing"
     return ""
+
+
+def _bd_apply_plan(
+    *,
+    actions: list[dict[str, object]],
+    design_name: str | None,
+    bd_path: Path | None,
+    validate: bool,
+    save: bool,
+) -> dict[str, object]:
+    from .tcl import bd_apply_tcl
+
+    planned_actions: list[dict[str, object]] = []
+    for index, action in enumerate(actions, start=1):
+        planned_actions.append(
+            {
+                "index": index,
+                "action": str(action.get("action") or action.get("type") or ""),
+                "input": action,
+                "risk_level": _bd_action_risk(action),
+            }
+        )
+    if validate:
+        planned_actions.append({"action": "validate_bd_design", "risk_level": "low"})
+    if save:
+        planned_actions.append({"action": "save_bd_design", "risk_level": "medium"})
+    return {
+        "operation": "bd_apply",
+        "design_name": design_name,
+        "bd_path": str(bd_path) if bd_path else "",
+        "actions": planned_actions,
+        "risk_level": "medium" if save else "low",
+        "would_execute_tcl": bool(planned_actions),
+        "tcl_preview": bd_apply_tcl(actions=actions, design_name=design_name, bd_path=bd_path, validate=validate, save=save),
+        "recommended_docs": [
+            {"doc_id": "UG994", "title": "Vivado Design Suite User Guide: Designing IP Subsystems Using IP Integrator"},
+            {"doc_id": "UG835", "title": "Vivado Design Suite Tcl Command Reference Guide"},
+            {"doc_id": "UG912", "title": "Vivado Design Suite Properties Reference Guide"},
+        ],
+        "recommendations": [
+            {"tool": "vivado_bd_audit", "why": "Audit current BD validation, connectivity, and address state before applying actions."},
+            {"tool": "vivado_bd_summary", "why": "Refresh BD cells, ports, nets, interfaces, and validation after applying actions."},
+            {"tool": "vivado_bd_validate", "why": "Parse validation diagnostics before generating wrappers or output products."},
+        ],
+    }
+
+
+def _bd_action_risk(action: dict[str, object]) -> str:
+    action_type = str(action.get("action") or action.get("type") or "")
+    if action_type in {"assign_address", "apply_automation", "set_property"}:
+        return "medium"
+    if action_type in {"validate", "save"}:
+        return "low"
+    return "medium"
 
 
 def _fileset_apply_plan(

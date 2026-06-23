@@ -26,7 +26,7 @@ Current design documents:
 - Audit XDC constraint filesets: loading order, per-file command markers, USED_IN scopes, methodology markers, and basic UG903/UG949 sanity warnings.
 - Search, dry-run/create, inspect, check upgrade state, upgrade, and generate output products for Vivado project IP.
 - Audit simulation setup, dry-run/prepare simulation filesets, launch Vivado simulation, and parse xsim/xelab/xvlog/xvhdl logs into issue IDs.
-- Create, inspect, mutate, validate, and generate generic IP Integrator block designs.
+- Create, inspect, audit, dry-run/mutate, validate, and generate generic IP Integrator block designs.
 - Run synthesis, implementation, and bitstream generation.
 - Run basic Non-project Mode flows: read RTL/XDC, execute synth/opt/place/route, write checkpoints, and collect reports.
 - Generate timing, utilization, DRC, methodology, power, and message reports.
@@ -192,6 +192,7 @@ After connecting the MCP client, use this sequence:
 - `vivado_nonproject_route_design`
 - `vivado_bd_open_or_create`
 - `vivado_bd_summary`
+- `vivado_bd_audit`
 - `vivado_bd_apply`
 - `vivado_bd_validate`
 - `vivado_bd_generate`
@@ -234,7 +235,7 @@ Command files, result files, logs, and reports are stored under the managed sess
 vivado://sessions/{session_ref}/artifacts/{artifact_id}
 ```
 
-Use `vivado_list_artifacts` to discover artifact URIs and `vivado_read_artifact` to read text artifacts. `vivado_report` also returns a best-effort `report_summary` for timing, utilization, DRC, methodology, power, and message reports. `vivado_analyze_reports` generates selected reports, ranks timing/utilization/DRC/power/methodology issues, and writes a JSON analysis artifact with issue IDs such as `timing.setup_failed`, `timing.unconstrained_paths`, `drc.io_standard_missing`, `utilization.resource_pressure`, and `power.thermal_risk`. `vivado_list_ips`, `vivado_describe_ip`, and `vivado_ip_upgrade_check` return structured project IP state, upgrade risk, output-generation state, and recommended next tools. `vivado_simulation_audit` checks simulation fileset/top/testbench/IP output-product state before launch, `vivado_launch_simulation` returns simulation log artifact paths when Vivado reports them, and `vivado_analyze_xsim_logs` writes a JSON diagnostic artifact with simulation issue IDs and official-doc queries. Non-project step tools write checkpoints under session artifacts and parse requested reports. `vivado_hw_discover` returns structured read-only hardware target/device summaries and a TSV artifact. `vivado_project_summary` returns the current project, source files, runs, IP, and block designs as structured data.
+Use `vivado_list_artifacts` to discover artifact URIs and `vivado_read_artifact` to read text artifacts. `vivado_report` also returns a best-effort `report_summary` for timing, utilization, DRC, methodology, power, and message reports. `vivado_analyze_reports` generates selected reports, ranks timing/utilization/DRC/power/methodology issues, and writes a JSON analysis artifact with issue IDs such as `timing.setup_failed`, `timing.unconstrained_paths`, `drc.io_standard_missing`, `utilization.resource_pressure`, and `power.thermal_risk`. `vivado_list_ips`, `vivado_describe_ip`, and `vivado_ip_upgrade_check` return structured project IP state, upgrade risk, output-generation state, and recommended next tools. `vivado_simulation_audit` checks simulation fileset/top/testbench/IP output-product state before launch, `vivado_launch_simulation` returns simulation log artifact paths when Vivado reports them, and `vivado_analyze_xsim_logs` writes a JSON diagnostic artifact with simulation issue IDs and official-doc queries. `vivado_bd_audit` checks block-design validation, connectivity, address, and interface state, while `vivado_bd_apply(dry_run=true)` returns an action plan and Tcl preview before mutation. Non-project step tools write checkpoints under session artifacts and parse requested reports. `vivado_hw_discover` returns structured read-only hardware target/device summaries and a TSV artifact. `vivado_project_summary` returns the current project, source files, runs, IP, and block designs as structured data.
 
 `vivado_capture_state` writes a JSON snapshot of project, fileset, constraint, IP, report-artifact, run, and optional block-design state. `vivado_state_diff` compares two snapshot artifacts and returns v2 grouped diffs plus a flat `changes` list, summary counts, and follow-up tool recommendations. Supported mutating or artifact-producing tools, including expert Tcl, source/fileset/property/top operations, IP operations, simulation launch, BD apply/generate, hardware discovery, and run launch helpers, accept `capture_diff=true` to return before/after snapshot artifact URIs plus a diff artifact.
 

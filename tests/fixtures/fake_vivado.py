@@ -87,7 +87,7 @@ def _result_for(body: str) -> str:
                     "cell\t/axi_gpio_0\tip\txilinx.com:ip:axi_gpio:2.0",
                     "port\t/gpio_tri_o\tO\tdata\t31\t0",
                     "net\t/net_gpio\t/axi_gpio_0/gpio_io_o,/gpio_tri_o",
-                    "validation\t0\t",
+                    "validation\t1\tERROR: [BD 41-758] Port /gpio_tri_o is not connected",
                     "",
                 ]
             ),
@@ -97,7 +97,7 @@ def _result_for(body: str) -> str:
     if "bd_actions_applied=" in body or "create_bd_cell" in body:
         return "bd_actions_applied=1 current_bd_design=design_1"
     if "bd_validated=" in body or "validate_bd_design" in body:
-        return "bd_validated=design_1"
+        return "ERROR: [BD 41-758] Port /gpio_tri_o is not connected\nbd_validated=design_1"
     if "ip_outputs_generated" in body:
         return "ip_outputs_generated"
     if "generate_target" in body:

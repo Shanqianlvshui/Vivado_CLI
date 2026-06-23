@@ -203,28 +203,28 @@ COMMAND_COVERAGE: dict[str, dict[str, object]] = {
     },
     "create_bd_cell": {
         "coverage_status": "partial",
-        "recommended_tools": ["vivado_bd_apply"],
-        "notes": "Common IP/module/hier cell creation is covered; unusual options may need Tcl.",
+        "recommended_tools": ["vivado_bd_audit", "vivado_bd_apply"],
+        "notes": "Audit current BD state first. Common IP/module/hier cell creation is covered; unusual options may need Tcl.",
     },
     "create_bd_port": {
         "coverage_status": "partial",
-        "recommended_tools": ["vivado_bd_apply"],
+        "recommended_tools": ["vivado_bd_audit", "vivado_bd_apply"],
         "notes": "Common port creation is covered; verify advanced options against UG835.",
     },
     "connect_bd_net": {
         "coverage_status": "partial",
-        "recommended_tools": ["vivado_bd_apply"],
+        "recommended_tools": ["vivado_bd_audit", "vivado_bd_apply"],
         "notes": "Basic net connections are covered; named net/boundary options may need Tcl.",
     },
     "connect_bd_intf_net": {
         "coverage_status": "partial",
-        "recommended_tools": ["vivado_bd_apply"],
+        "recommended_tools": ["vivado_bd_audit", "vivado_bd_apply"],
         "notes": "Basic interface connections are covered; advanced options may need Tcl.",
     },
     "validate_bd_design": {
         "coverage_status": "covered",
-        "recommended_tools": ["vivado_bd_validate"],
-        "notes": "Use the structured validator to keep validation artifacts attached to the session.",
+        "recommended_tools": ["vivado_bd_audit", "vivado_bd_validate"],
+        "notes": "Use the structured validator and audit to keep parsed validation diagnostics attached to the session.",
     },
     "generate_target": {
         "coverage_status": "partial",

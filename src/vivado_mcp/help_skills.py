@@ -131,11 +131,12 @@ def help_topic(topic: str | None = None) -> dict[str, object]:
     if normalized in {"bd", "block-design", "block-design-flow", "ip-integrator", "ipi"}:
         return {
             "topic": "block_design_flow",
-            "summary": "Use generic IP Integrator tools to create/open BD designs, apply actions, validate, summarize, and generate wrapper outputs.",
+            "summary": "Use generic IP Integrator tools to create/open BD designs, audit validation/connectivity, dry-run/apply actions, and generate wrapper outputs.",
             "recommended_tools": [
                 "vivado_bd_open_or_create",
-                "vivado_bd_apply",
                 "vivado_bd_summary",
+                "vivado_bd_audit",
+                "vivado_bd_apply",
                 "vivado_bd_validate",
                 "vivado_bd_generate",
             ],

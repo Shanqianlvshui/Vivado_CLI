@@ -463,6 +463,24 @@ def test_block_design_workflow_uses_generic_tools(tmp_path: Path) -> None:
     assert opened["ok"] is True
     assert opened["result"] == "bd_design=design_1"
 
+    audit = manager.bd_audit(session_ref=session_ref, design_name="design_1", timeout_seconds=5)
+    assert audit["ok"] is False
+    assert "bd.connection_missing" in {issue["issue_id"] for issue in audit["issues"]}
+
+    dry_applied = manager.bd_apply(
+        session_ref=session_ref,
+        design_name="design_1",
+        actions=[
+            {"action": "create_cell", "name": "axi_gpio_0", "vlnv": "xilinx.com:ip:axi_gpio:*"},
+            {"action": "create_port", "name": "gpio_tri_o", "direction": "O", "from": 31, "to": 0},
+        ],
+        timeout_seconds=5,
+        dry_run=True,
+    )
+    assert dry_applied["dry_run"] is True
+    assert dry_applied["plan"]["actions"][0]["action"] == "create_cell"
+    assert "create_bd_cell" in dry_applied["plan"]["tcl_preview"]
+
     applied = manager.bd_apply(
         session_ref=session_ref,
         design_name="design_1",
@@ -474,6 +492,10 @@ def test_block_design_workflow_uses_generic_tools(tmp_path: Path) -> None:
     )
     assert applied["ok"] is True
     assert "bd_actions_applied" in applied["result"]
+
+    validated = manager.bd_validate(session_ref=session_ref, design_name="design_1", timeout_seconds=5)
+    assert validated["ok"] is True
+    assert validated["validation"]["issues"][0]["issue_id"] == "bd.connection_missing"
 
     summary = manager.bd_summary(session_ref=session_ref, design_name="design_1", validate=True, timeout_seconds=5)
     assert summary["ok"] is True

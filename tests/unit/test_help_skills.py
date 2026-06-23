@@ -33,6 +33,8 @@ def test_help_topic_points_to_skill() -> None:
 
     bd_help = help_topic("bd")
     assert bd_help["related_resources"] == ["vivado://skills/block-design-flow"]
+    assert "vivado_bd_audit" in bd_help["recommended_tools"]
+    assert "vivado_bd_apply" in bd_help["recommended_tools"]
 
     ip_help = help_topic("ip")
     assert "vivado_ip_catalog_search" in ip_help["recommended_tools"]

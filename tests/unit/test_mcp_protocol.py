@@ -57,6 +57,7 @@ async def test_mcp_server_lists_core_tools() -> None:
                 "vivado_constraint_set_apply",
                 "vivado_bd_open_or_create",
                 "vivado_bd_summary",
+                "vivado_bd_audit",
                 "vivado_bd_apply",
                 "vivado_list_sessions",
                 "vivado_read_artifact",

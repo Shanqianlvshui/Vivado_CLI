@@ -58,6 +58,7 @@ def test_tcl_command_coverage_prefers_structured_tool_for_bd_cell() -> None:
     coverage = tcl_command_coverage("create_bd_cell")
 
     assert coverage["coverage_status"] == "partial"
+    assert "vivado_bd_audit" in coverage["recommended_tools"]
     assert "vivado_bd_apply" in coverage["recommended_tools"]
     assert coverage["recommendation"] == "prefer_structured_tool_when_possible"
 
