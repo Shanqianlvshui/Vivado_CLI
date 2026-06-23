@@ -54,6 +54,20 @@ def test_review_tcl_flags_nested_and_semicolon_commands() -> None:
     assert "UG908" in result["recommended_docs"]
 
 
+def test_review_tcl_does_not_treat_windows_drive_letters_as_commands() -> None:
+    result = review_tcl(
+        "open_project -read_only {C:/Workspace/Vivado/project.xpr}\n"
+        'return "project=[current_project]"'
+    )
+
+    assert result["risk_level"] == "low"
+    assert result["requires_expect_destructive"] is False
+    assert "open_project" in result["commands"]
+    assert "return" in result["commands"]
+    assert "current_project" in result["commands"]
+    assert "C" not in result["commands"]
+
+
 def test_tcl_command_coverage_prefers_structured_tool_for_bd_cell() -> None:
     coverage = tcl_command_coverage("create_bd_cell")
 

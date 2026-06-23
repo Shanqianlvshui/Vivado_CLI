@@ -1168,8 +1168,9 @@ def describe_fileset_tcl(output_path: Path, *, name: str) -> str:
     """Emit a TSV with one fileset's full details.
 
     Columns: ``fileset | file | file_type | library | processing_order
-    | used_in_synth | used_in_sim | used_in_impl`` for each contained file,
-    followed by ``property | key | value`` for each fileset-level property.
+    | used_in_synth | used_in_sim | used_in_impl | used_in`` for each
+    contained file, followed by ``property | key | value`` for each
+    fileset-level property.
     """
     out = quote_tcl(output_path)
     out_string = str(output_path).replace("\\", "/")
@@ -1196,16 +1197,18 @@ def describe_fileset_tcl(output_path: Path, *, name: str) -> str:
             "  set ftype \"\"",
             "  set lib \"\"",
             "  set order 0",
-            "  set synth 0",
-            "  set sim 0",
-            "  set impl 0",
+            "  set synth \"\"",
+            "  set sim \"\"",
+            "  set impl \"\"",
+            "  set used_in \"\"",
             "  catch { set ftype [get_property FILE_TYPE $file] }",
             "  catch { set lib [get_property LIBRARY $file] }",
             "  catch { set order [get_property PROCESSING_ORDER $file] }",
+            "  catch { set used_in [get_property USED_IN $file] }",
             "  catch { set synth [get_property IS_ENABLED_SYNTHESIS $file] }",
             "  catch { set sim [get_property IS_ENABLED_SIMULATION $file] }",
             "  catch { set impl [get_property IS_ENABLED_IMPLEMENTATION $file] }",
-            "  mcp_put $f file $file $ftype $lib $order $synth $sim $impl",
+            "  mcp_put $f file $file $ftype $lib $order $synth $sim $impl $used_in",
             "}",
             "close $f",
             f"return \"fileset_desc={out_string}\"",
@@ -1396,8 +1399,8 @@ def constraint_diagnostics_tcl(output_path: Path) -> str:
             "set mcp_xdc_has_create_clock 0",
             "set mcp_xdc_has_generated_clock 0",
             "set mcp_xdc_has_false_path 0",
-            "set mcp_xdc_has_set_input_delay 0",
-            "set mcp_xdc_has_set_output_delay 0",
+            "set mcp_xdc_has_input_delay 0",
+            "set mcp_xdc_has_output_delay 0",
             "set mcp_xdc_has_get_ports 0",
             "set mcp_xdc_has_clock_groups 0",
             "foreach fs $mcp_constr_filesets {",

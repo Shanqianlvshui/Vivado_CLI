@@ -1,4 +1,5 @@
 from vivado_mcp.report_parser import (
+    append_report_generation_issues,
     analyze_report_summaries,
     parse_clock_interaction,
     parse_messages,
@@ -224,3 +225,27 @@ def test_analyze_report_summaries_prioritizes_actionable_findings() -> None:
     assert "power.high_total" in issue_ids
     assert "vivado_report" in analysis["suggested_next_tools"]
     assert "UG906" in analysis["official_references"]
+
+
+def test_append_report_generation_issues_marks_failed_reports_not_clean() -> None:
+    analysis = analyze_report_summaries({})
+
+    append_report_generation_issues(
+        analysis,
+        [
+            {
+                "report_type": "timing_summary",
+                "ok": False,
+                "error": "ERROR: Cannot run report_timing_summary before design is loaded",
+                "result_artifact_uri": "vivado://sessions/test/artifacts/done/result.txt",
+                "command_artifact_uri": "vivado://sessions/test/artifacts/running/command.tcl",
+            }
+        ],
+    )
+
+    assert analysis["ok"] is False
+    assert analysis["summary"]["issue_count"] == 1
+    assert analysis["summary"]["medium_count"] == 1
+    assert analysis["issues"][0]["issue_id"] == "report.generation_failed"
+    assert analysis["quality_gates"]["bitstream_ready"] is False
+    assert analysis["next_action_plan"][0]["tool"] == "vivado_report"

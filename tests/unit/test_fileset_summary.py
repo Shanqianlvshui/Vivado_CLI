@@ -37,6 +37,32 @@ def test_parse_list_filesets_extracts_types_and_tops(tmp_path: Path) -> None:
     assert by_name["constrs_1"]["file_count"] == 2
 
 
+def test_parse_list_filesets_normalizes_real_vivado_fileset_types(tmp_path: Path) -> None:
+    tsv = tmp_path / "filesets.tsv"
+    tsv.write_text(
+        "\n".join(
+            [
+                "has_project\t1",
+                "current_project\treal_project",
+                "fileset\tsources_1\tDesignSrcs\t189\t\t\t\tctrl_qt7331_top\t",
+                "fileset\tsim_1\tSimulationSrcs\t0\t\t\t\tctrl_qt7331_top\t",
+                "fileset\tpll\tBlockSrcs\t19\t\t\t\tpll\t",
+                "fileset\tconstrs_1\tConstrs\t1\t\t\t\t\t",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    parsed = parse_list_filesets(tsv)
+    by_name = {row["name"]: row for row in parsed["filesets"]}
+    assert by_name["sources_1"]["type"] == "DesignSrcs"
+    assert by_name["sources_1"]["category"] == "source"
+    assert by_name["sim_1"]["category"] == "simulation"
+    assert by_name["pll"]["category"] == "block_source"
+    assert by_name["constrs_1"]["category"] == "constraint"
+
+
 def test_parse_describe_fileset_returns_files_and_properties(tmp_path: Path) -> None:
     tsv = tmp_path / "desc.tsv"
     tsv.write_text(
@@ -60,6 +86,45 @@ def test_parse_describe_fileset_returns_files_and_properties(tmp_path: Path) -> 
     assert parsed["files"][1]["processing_order"] == 1
     assert parsed["files"][0]["used_in"] == ["synthesis", "simulation", "implementation"]
     assert parsed["files"][0]["active_in"]["synthesis"] is True
+
+
+def test_parse_describe_fileset_keeps_unknown_used_in_as_none(tmp_path: Path) -> None:
+    tsv = tmp_path / "desc.tsv"
+    tsv.write_text(
+        "\n".join(
+            [
+                "fileset\tsources_1",
+                "property\tFILESET_TYPE\tDesignSrcs",
+                "file\tC:/fake/top.v\tVerilog\txil_defaultlib\tNORMAL\t\t\t",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    parsed = parse_describe_fileset(tsv)
+
+    assert parsed["files"][0]["active_in"]["synthesis"] is None
+    assert parsed["files"][0]["used_in"] == []
+
+
+def test_parse_describe_fileset_prefers_used_in_property(tmp_path: Path) -> None:
+    tsv = tmp_path / "desc.tsv"
+    tsv.write_text(
+        "\n".join(
+            [
+                "fileset\tsources_1",
+                "property\tFILESET_TYPE\tDesignSrcs",
+                "file\tC:/fake/top.v\tVerilog\txil_defaultlib\tNORMAL\t\t\t\t{synthesis implementation}",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    parsed = parse_describe_fileset(tsv)
+
+    assert parsed["files"][0]["used_in"] == ["synthesis", "implementation"]
+    assert parsed["files"][0]["active_in"]["synthesis"] is True
+    assert parsed["files"][0]["active_in"]["simulation"] is False
 
 
 def test_parse_constraint_diagnostics_sorts_files_by_fileset_and_order(tmp_path: Path) -> None:
@@ -154,6 +219,117 @@ def test_analyze_source_audit_flags_missing_top_duplicates_and_scope() -> None:
     assert issues_by_id["top.not_found"]["confidence"] == "heuristic"
     assert audit["summary"]["fileset_count"] == 2
     assert any(rec["tool"] == "vivado_fileset_apply" for rec in audit["recommendations"])
+
+
+def test_analyze_source_audit_handles_real_vivado_fileset_types_and_path_case() -> None:
+    project = {
+        "has_project": True,
+        "top": "ctrl_qt7331_top",
+        "files": [
+            {"path": "C:/Workspace/proj/src/ctrl_qt7331_top.v", "file_type": "Verilog"},
+            {"path": "C:/Workspace/proj/constraints/top_pin.xdc", "file_type": "XDC"},
+            {"path": "c:/Workspace/proj/proj.gen/sources_1/ip/pll/pll.xdc", "file_type": "XDC"},
+        ],
+    }
+    filesets = {
+        "has_project": True,
+        "filesets": [
+            {"name": "sources_1", "type": "DesignSrcs", "category": "source", "file_count": 1, "top": "ctrl_qt7331_top"},
+            {"name": "constrs_1", "type": "Constrs", "category": "constraint", "file_count": 1},
+            {"name": "pll", "type": "BlockSrcs", "category": "block_source", "file_count": 1},
+        ],
+    }
+    described = [
+        {
+            "name": "sources_1",
+            "properties": {"TOP": "ctrl_qt7331_top"},
+            "files": [
+                {
+                    "path": "C:/Workspace/proj/src/ctrl_qt7331_top.v",
+                    "file_type": "Verilog",
+                    "is_enabled_synthesis": True,
+                    "is_enabled_simulation": True,
+                    "is_enabled_implementation": True,
+                }
+            ],
+        },
+        {
+            "name": "constrs_1",
+            "properties": {},
+            "files": [
+                {
+                    "path": "C:/Workspace/proj/constraints/top_pin.xdc",
+                    "file_type": "XDC",
+                    "is_enabled_synthesis": True,
+                    "is_enabled_simulation": False,
+                    "is_enabled_implementation": True,
+                }
+            ],
+        },
+        {
+            "name": "pll",
+            "properties": {},
+            "files": [
+                {
+                    "path": "c:/Workspace/proj/proj.gen/sources_1/ip/pll/pll.xdc",
+                    "file_type": "XDC",
+                    "is_enabled_synthesis": True,
+                    "is_enabled_simulation": False,
+                    "is_enabled_implementation": True,
+                }
+            ],
+        },
+    ]
+    constraints = {
+        "has_project": True,
+        "constraint_files": [
+            {"fileset": "constrs_1", "order": 0, "path": "c:/workspace/proj/constraints/top_pin.xdc", "file_type": "XDC"}
+        ],
+        "xdc_markers": {"create_clock": 1},
+        "warnings": [],
+    }
+
+    audit = analyze_source_audit(project, filesets, described, constraints)
+
+    issue_ids = {issue["issue_id"] for issue in audit["issues"]}
+    assert audit["ok"] is True
+    assert audit["summary"]["source_file_count"] == 1
+    assert audit["summary"]["constraint_file_count"] == 1
+    assert "top.not_found" not in issue_ids
+    assert "xdc.in_wrong_fileset" not in issue_ids
+    assert "xdc.not_in_constraint_set" not in issue_ids
+
+
+def test_analyze_source_audit_does_not_flag_unknown_synthesis_scope() -> None:
+    project = {
+        "has_project": True,
+        "top": "top",
+        "files": [{"path": "C:/fake/top.v", "file_type": "Verilog"}],
+    }
+    filesets = {
+        "has_project": True,
+        "filesets": [{"name": "sources_1", "type": "DesignSrcs", "category": "source", "file_count": 1, "top": "top"}],
+    }
+    described = [
+        {
+            "name": "sources_1",
+            "properties": {"TOP": "top"},
+            "files": [
+                {
+                    "path": "C:/fake/top.v",
+                    "file_type": "Verilog",
+                    "is_enabled_synthesis": None,
+                    "is_enabled_simulation": None,
+                    "is_enabled_implementation": None,
+                }
+            ],
+        }
+    ]
+    constraints = {"has_project": False, "constraint_files": [], "xdc_markers": {}, "warnings": []}
+
+    audit = analyze_source_audit(project, filesets, described, constraints)
+
+    assert "source.disabled_for_synthesis" not in {issue["issue_id"] for issue in audit["issues"]}
 
 
 def test_analyze_xdc_order_flags_constraints_before_clocks() -> None:

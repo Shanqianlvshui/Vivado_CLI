@@ -244,6 +244,35 @@ def analyze_report_summaries(summaries: dict[str, dict[str, object]]) -> dict[st
     }
 
 
+def append_report_generation_issues(analysis: dict[str, object], failed_reports: list[dict[str, object]]) -> dict[str, object]:
+    issues = analysis.setdefault("issues", [])
+    if not isinstance(issues, list):
+        issues = []
+        analysis["issues"] = issues
+    for report in failed_reports:
+        issues.append(
+            _enrich_issue(
+                _issue(
+                    "report.generation_failed",
+                    "medium",
+                    str(report.get("report_type") or "unknown"),
+                    str(report.get("error") or "Vivado report command returned a non-zero result."),
+                    "Inspect command/result artifacts and confirm the current design stage supports this report.",
+                    "reports",
+                    ["UG906"],
+                    ["Vivado report command failed current design stage"],
+                    result_artifact_uri=report.get("result_artifact_uri"),
+                    command_artifact_uri=report.get("command_artifact_uri"),
+                    report_artifact_uri=report.get("report_artifact_uri"),
+                    report_path=report.get("report_path"),
+                )
+            )
+        )
+    issues.sort(key=_issue_sort_key)
+    _refresh_analysis_rollups(analysis)
+    return analysis
+
+
 def _analyze_timing(report_type: str, summary: dict[str, object]) -> list[dict[str, object]]:
     issues: list[dict[str, object]] = []
     wns = _float_value(summary.get("wns"))
@@ -720,13 +749,33 @@ def _blocked_flow_stages(issue_id: str) -> list[str]:
 def _quality_gates(issues: list[dict[str, object]]) -> dict[str, object]:
     issue_ids = {str(issue.get("issue_id") or "") for issue in issues}
     high_ids = {str(issue.get("issue_id") or "") for issue in issues if issue.get("severity") == "high"}
+    report_failed = "report.generation_failed" in issue_ids
     return {
-        "constraints_clean": not any(issue_id in issue_ids for issue_id in ("timing.unconstrained_paths", "drc.io_standard_missing", "drc.io_pin_unconstrained")),
-        "timing_clean": not any(issue_id.startswith(("timing.", "clock_interaction.")) for issue_id in high_ids),
-        "drc_clean": not any(issue_id.startswith("drc.") for issue_id in high_ids),
-        "power_clean": not any(issue_id.startswith("power.") for issue_id in high_ids),
-        "bitstream_ready": not any(issue_id.startswith("drc.") or issue_id.startswith("timing.") or issue_id.startswith("clock_interaction.") for issue_id in high_ids),
+        "constraints_clean": not report_failed
+        and not any(issue_id in issue_ids for issue_id in ("timing.unconstrained_paths", "drc.io_standard_missing", "drc.io_pin_unconstrained")),
+        "timing_clean": not report_failed and not any(issue_id.startswith(("timing.", "clock_interaction.")) for issue_id in high_ids),
+        "drc_clean": not report_failed and not any(issue_id.startswith("drc.") for issue_id in high_ids),
+        "power_clean": not report_failed and not any(issue_id.startswith("power.") for issue_id in high_ids),
+        "bitstream_ready": not report_failed
+        and not any(issue_id.startswith("drc.") or issue_id.startswith("timing.") or issue_id.startswith("clock_interaction.") for issue_id in high_ids),
     }
+
+
+def _refresh_analysis_rollups(analysis: dict[str, object]) -> None:
+    issues = [issue for issue in analysis.get("issues", []) if isinstance(issue, dict)]
+    report_failed = any(issue.get("issue_id") == "report.generation_failed" for issue in issues)
+    analysis["ok"] = not report_failed and not any(issue.get("severity") == "high" for issue in issues)
+    analysis["summary"] = {
+        **(analysis.get("summary") if isinstance(analysis.get("summary"), dict) else {}),
+        "issue_count": len(issues),
+        "high_count": sum(1 for issue in issues if issue.get("severity") == "high"),
+        "medium_count": sum(1 for issue in issues if issue.get("severity") == "medium"),
+        "low_count": sum(1 for issue in issues if issue.get("severity") == "low"),
+    }
+    analysis["quality_gates"] = _quality_gates(issues)
+    analysis["next_action_plan"] = _next_action_plan(issues)
+    analysis["suggested_next_tools"] = _suggested_next_tools(issues)
+    analysis["official_references"] = _official_references_for_issues(issues)
 
 
 def _next_action_plan(issues: list[dict[str, object]]) -> list[dict[str, object]]:

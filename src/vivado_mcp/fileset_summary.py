@@ -33,10 +33,12 @@ def parse_list_filesets(path: Path) -> dict[str, object]:
         elif key == "current_project":
             current_project = parts[1] if len(parts) > 1 else ""
         elif key == "fileset":
+            fileset_type = parts[2] if len(parts) > 2 else ""
             filesets.append(
                 {
                     "name": parts[1] if len(parts) > 1 else "",
-                    "type": parts[2] if len(parts) > 2 else "",
+                    "type": fileset_type,
+                    "category": _fileset_category(fileset_type),
                     "file_count": int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0,
                     "is_enabled_synthesis": parts[4] == "1" if len(parts) > 4 else False,
                     "is_enabled_simulation": parts[5] == "1" if len(parts) > 5 else False,
@@ -66,9 +68,16 @@ def parse_describe_fileset(path: Path) -> dict[str, object]:
             if len(parts) >= 3:
                 properties[parts[1]] = parts[2]
         elif key == "file":
-            synth_enabled = parts[5] == "1" if len(parts) > 5 else False
-            sim_enabled = parts[6] == "1" if len(parts) > 6 else False
-            impl_enabled = parts[7] == "1" if len(parts) > 7 else False
+            synth_enabled = _optional_bool(parts[5] if len(parts) > 5 else "")
+            sim_enabled = _optional_bool(parts[6] if len(parts) > 6 else "")
+            impl_enabled = _optional_bool(parts[7] if len(parts) > 7 else "")
+            used_in = _parse_used_in(parts[8] if len(parts) > 8 else "")
+            if used_in:
+                synth_enabled = "synthesis" in used_in
+                sim_enabled = "simulation" in used_in
+                impl_enabled = "implementation" in used_in
+            else:
+                used_in = _used_in(synth_enabled, sim_enabled, impl_enabled)
             files.append(
                 {
                     "path": parts[1] if len(parts) > 1 else "",
@@ -78,7 +87,7 @@ def parse_describe_fileset(path: Path) -> dict[str, object]:
                     "is_enabled_synthesis": synth_enabled,
                     "is_enabled_simulation": sim_enabled,
                     "is_enabled_implementation": impl_enabled,
-                    "used_in": _used_in(synth_enabled, sim_enabled, impl_enabled),
+                    "used_in": used_in,
                     "active_in": {
                         "synthesis": synth_enabled,
                         "simulation": sim_enabled,
@@ -173,14 +182,20 @@ def analyze_source_audit(
     issues: list[dict[str, object]] = []
     project_files = _list_dicts(project.get("files"))
     project_paths = [str(row.get("path") or "") for row in project_files if row.get("path")]
-    described_files = [file for desc in described_filesets for file in _list_dicts(desc.get("files"))]
+    described_files = [
+        file
+        for desc in described_filesets
+        for file in _list_dicts(desc.get("files"))
+        if not _is_generated_ip_artifact(str(file.get("path") or ""))
+    ]
     source_files = [file for file in described_files if _is_source_file(str(file.get("file_type") or ""))]
     xdc_in_source = [
         {"fileset": desc.get("name"), "path": file.get("path")}
         for desc in described_filesets
-        if _fileset_type(desc, filesets) != "Constrs"
+        if _fileset_category(_fileset_type(desc, filesets)) not in {"constraint", "block_source"}
         for file in _list_dicts(desc.get("files"))
         if _is_xdc_file(str(file.get("file_type") or ""), str(file.get("path") or ""))
+        and not _is_generated_ip_artifact(str(file.get("path") or ""))
     ]
 
     duplicates = sorted(path for path, count in _counts(project_paths).items() if path and count > 1)
@@ -216,9 +231,14 @@ def analyze_source_audit(
     if constraints.get("has_project") is not False and int(markers.get("create_clock", 0) or 0) == 0:
         issues.append(_issue("constraint.no_create_clock", "medium", legacy_issue_id="constraints.no_create_clock"))
 
-    constraint_paths = {str(row.get("path") or "") for row in _list_dicts(constraints.get("constraint_files"))}
-    project_xdc_paths = {str(row.get("path") or "") for row in project_files if _is_xdc_file(str(row.get("file_type") or ""), str(row.get("path") or ""))}
-    missing_from_constraints = sorted(path for path in project_xdc_paths if path and path not in constraint_paths)
+    constraint_paths = {_path_key(str(row.get("path") or "")) for row in _list_dicts(constraints.get("constraint_files"))}
+    project_xdc_paths = {
+        str(row.get("path") or "")
+        for row in project_files
+        if _is_xdc_file(str(row.get("file_type") or ""), str(row.get("path") or ""))
+        and not _is_generated_ip_artifact(str(row.get("path") or ""))
+    }
+    missing_from_constraints = sorted(path for path in project_xdc_paths if path and _path_key(path) not in constraint_paths)
     if missing_from_constraints:
         issues.append(_issue("xdc.not_in_constraint_set", "medium", legacy_issue_id="constraint.not_in_constraint_set", paths=missing_from_constraints))
 
@@ -311,12 +331,28 @@ def _to_int(value: str) -> int:
 
 def _used_in(synthesis: bool, simulation: bool, implementation: bool) -> list[str]:
     scopes = []
-    if synthesis:
+    if synthesis is True:
         scopes.append("synthesis")
-    if simulation:
+    if simulation is True:
         scopes.append("simulation")
-    if implementation:
+    if implementation is True:
         scopes.append("implementation")
+    return scopes
+
+
+def _optional_bool(value: str) -> bool | None:
+    if value == "":
+        return None
+    return value == "1"
+
+
+def _parse_used_in(value: str) -> list[str]:
+    normalized = str(value or "").replace("{", " ").replace("}", " ").replace(",", " ")
+    scopes = []
+    for scope in normalized.split():
+        lowered = scope.lower()
+        if lowered in {"synthesis", "simulation", "implementation"} and lowered not in scopes:
+            scopes.append(lowered)
     return scopes
 
 
@@ -405,12 +441,36 @@ def _is_source_file(file_type: str) -> bool:
     return any(term in lowered for term in ("verilog", "vhdl", "systemverilog"))
 
 
+def _fileset_category(fileset_type: str) -> str:
+    normalized = str(fileset_type or "").lower()
+    if normalized in {"source", "designsrcs", "design_sources"}:
+        return "source"
+    if normalized in {"simulation", "simulationsrcs", "simulation_sources"}:
+        return "simulation"
+    if normalized in {"constrs", "constraint", "constraints"}:
+        return "constraint"
+    if normalized in {"blocksrcs", "block_source", "block_sources"}:
+        return "block_source"
+    if normalized == "utils":
+        return "utility"
+    return "other"
+
+
 def _fileset_type(desc: dict[str, object], filesets: dict[str, object]) -> str:
     name = str(desc.get("name") or "")
     for row in _list_dicts(filesets.get("filesets")):
         if row.get("name") == name:
             return str(row.get("type") or "")
     return str(desc.get("properties", {}).get("FILESET_TYPE") if isinstance(desc.get("properties"), dict) else "")
+
+
+def _path_key(path: str) -> str:
+    return str(path or "").replace("\\", "/").lower()
+
+
+def _is_generated_ip_artifact(path: str) -> bool:
+    normalized = _path_key(path)
+    return "/.gen/sources_1/ip/" in normalized or ".gen/sources_1/ip/" in normalized
 
 
 def _first_non_empty(values) -> str:

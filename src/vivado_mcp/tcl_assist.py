@@ -598,11 +598,41 @@ def _strip_comments(tcl: str) -> str:
 
 def _top_level_commands(tcl: str) -> list[str]:
     commands: list[str] = []
-    for match in re.finditer(r"(?m)(?:^|[;\{\[])\s*([A-Za-z_][A-Za-z0-9_]*)\b", tcl):
+    body = _mask_braced_text(tcl)
+    for match in re.finditer(r"(?m)(?:^|[;\[])\s*([A-Za-z_][A-Za-z0-9_]*)\b", body):
         command = match.group(1)
         if command not in commands:
             commands.append(command)
     return commands
+
+
+def _mask_braced_text(tcl: str) -> str:
+    chars = list(tcl)
+    brace_depth = 0
+    escaped = False
+    for index, char in enumerate(chars):
+        if escaped:
+            if brace_depth:
+                chars[index] = " "
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            if brace_depth:
+                chars[index] = " "
+            continue
+        if brace_depth:
+            if char == "{":
+                brace_depth += 1
+            elif char == "}":
+                brace_depth -= 1
+            if char not in "\r\n":
+                chars[index] = " "
+            continue
+        if char == "{":
+            brace_depth = 1
+            chars[index] = " "
+    return "".join(chars)
 
 
 def _normalize_command(command: str) -> str:

@@ -729,7 +729,7 @@ class VivadoSessionManager:
         selected_names = filesets or [
             str(row.get("name"))
             for row in available.get("filesets", [])
-            if isinstance(row, dict) and str(row.get("type") or "") in {"Source", "Simulation", "Constrs"}
+            if isinstance(row, dict) and _fileset_category(row) in {"source", "simulation", "constraint"}
         ]
         described: list[dict[str, object]] = []
         describe_errors: list[dict[str, object]] = []
@@ -1150,7 +1150,7 @@ class VivadoSessionManager:
         report_types: list[str] | None = None,
         timeout_seconds: int = 300,
     ) -> dict[str, object]:
-        from .report_parser import analyze_report_summaries
+        from .report_parser import analyze_report_summaries, append_report_generation_issues
 
         selected = report_types or ["timing_summary", "clock_interaction", "utilization", "drc", "power", "methodology"]
         running = self._get(session_ref)
@@ -1170,21 +1170,24 @@ class VivadoSessionManager:
                 "result_artifact_uri": report.get("result_artifact_uri"),
                 "command_artifact_uri": report.get("command_artifact_uri"),
             }
+            if report.get("ok") is False:
+                errors.append(
+                    {
+                        "report_type": report_type,
+                        "ok": False,
+                        "error": report.get("error") or report.get("result") or "Vivado report command returned a non-zero result.",
+                        "report_path": report.get("report_path"),
+                        "report_artifact_uri": reports[report_type].get("report_artifact_uri"),
+                        "result_artifact_uri": report.get("result_artifact_uri"),
+                        "command_artifact_uri": report.get("command_artifact_uri"),
+                    }
+                )
             summary = report.get("report_summary")
             if isinstance(summary, dict):
                 summaries[report_type] = summary
         analysis = analyze_report_summaries(summaries)
         if errors:
-            analysis.setdefault("issues", []).append(
-                {
-                    "issue_id": "report.generation_failed",
-                    "severity": "medium",
-                    "reports": errors,
-                    "next_step": "Inspect command artifacts and confirm the design stage supports the requested reports.",
-                    "official_doc_topic": "reports",
-                    "official_references": ["UG906"],
-                }
-            )
+            analysis = append_report_generation_issues(analysis, errors)
         analyses_dir = running.record.session_dir / "analyses"
         analyses_dir.mkdir(parents=True, exist_ok=True)
         output_path = analyses_dir / f"report_analysis_{uuid.uuid4().hex[:8]}.json"
@@ -2373,6 +2376,24 @@ def _safe_label(label: str | None) -> str:
 
 def _snapshot_timeout(operation_timeout_seconds: int) -> int:
     return min(max(int(operation_timeout_seconds), 30), 120)
+
+
+def _fileset_category(row: dict[str, object]) -> str:
+    category = str(row.get("category") or "")
+    if category:
+        return category
+    fileset_type = str(row.get("type") or "").lower()
+    if fileset_type in {"source", "designsrcs", "design_sources"}:
+        return "source"
+    if fileset_type in {"simulation", "simulationsrcs", "simulation_sources"}:
+        return "simulation"
+    if fileset_type in {"constrs", "constraint", "constraints"}:
+        return "constraint"
+    if fileset_type in {"blocksrcs", "block_source", "block_sources"}:
+        return "block_source"
+    if fileset_type == "utils":
+        return "utility"
+    return "other"
 
 
 def _artifact_relative(session_ref: str, artifact_id_or_uri: str) -> str:
