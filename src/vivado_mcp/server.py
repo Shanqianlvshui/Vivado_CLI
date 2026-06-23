@@ -95,6 +95,7 @@ def vivado_run_tcl(
     tcl: str,
     timeout_seconds: int = 60,
     expect_destructive: bool = False,
+    capture_diff: bool = False,
 ) -> dict[str, object]:
     """Run raw Tcl in a managed session. Requires trusted-local or unrestricted profile."""
     return manager.run_tcl(
@@ -102,6 +103,7 @@ def vivado_run_tcl(
         tcl=tcl,
         timeout_seconds=timeout_seconds,
         expect_destructive=expect_destructive,
+        capture_diff=capture_diff,
     )
 
 
@@ -112,6 +114,7 @@ def vivado_source_tcl(
     tclargs: list[str] | None = None,
     timeout_seconds: int = 120,
     expect_destructive: bool = False,
+    capture_diff: bool = False,
 ) -> dict[str, object]:
     """Source a Tcl file in a managed session. Requires trusted-local or unrestricted profile."""
     return manager.source_tcl(
@@ -120,6 +123,7 @@ def vivado_source_tcl(
         tclargs=tclargs,
         timeout_seconds=timeout_seconds,
         expect_destructive=expect_destructive,
+        capture_diff=capture_diff,
     )
 
 
@@ -219,6 +223,7 @@ def vivado_add_sources(
     used_in: list[Literal["synthesis", "simulation", "implementation"]] | None = None,
     processing_order: int | None = None,
     timeout_seconds: int = 120,
+    capture_diff: bool = False,
 ) -> dict[str, object]:
     """Add RTL/source/constraint files to the current Vivado project.
 
@@ -240,6 +245,7 @@ def vivado_add_sources(
         used_in=used_in,
         processing_order=processing_order,
         timeout_seconds=timeout_seconds,
+        capture_diff=capture_diff,
     )
 
 
@@ -250,6 +256,7 @@ def vivado_remove_sources(
     fileset: str | None = None,
     force: bool = False,
     timeout_seconds: int = 120,
+    capture_diff: bool = False,
 ) -> dict[str, object]:
     """Remove files from a Vivado project fileset. Destructive — reviewed upstream."""
     return manager.remove_sources(
@@ -258,6 +265,7 @@ def vivado_remove_sources(
         fileset=fileset,
         force=force,
         timeout_seconds=timeout_seconds,
+        capture_diff=capture_diff,
     )
 
 
@@ -268,6 +276,7 @@ def vivado_set_file_properties(
     properties: dict[str, object],
     fileset: str | None = None,
     timeout_seconds: int = 60,
+    capture_diff: bool = False,
 ) -> dict[str, object]:
     """Set or update Vivado file properties (FILE_TYPE, LIBRARY, PROCESSING_ORDER, USED_IN_*)."""
     return manager.set_file_properties(
@@ -276,6 +285,7 @@ def vivado_set_file_properties(
         properties=properties,
         fileset=fileset,
         timeout_seconds=timeout_seconds,
+        capture_diff=capture_diff,
     )
 
 
@@ -285,6 +295,7 @@ def vivado_set_top(
     top: str | None = None,
     fileset: str | None = None,
     timeout_seconds: int = 60,
+    capture_diff: bool = False,
 ) -> dict[str, object]:
     """Set or query the Vivado top module for the given fileset.
 
@@ -295,6 +306,7 @@ def vivado_set_top(
         top=top,
         fileset=fileset,
         timeout_seconds=timeout_seconds,
+        capture_diff=capture_diff,
     )
 
 
@@ -310,9 +322,16 @@ def vivado_create_fileset(
     name: str,
     kind: Literal["constrs", "simulation", "Source", "BlockSrcs"] = "constrs",
     timeout_seconds: int = 120,
+    capture_diff: bool = False,
 ) -> dict[str, object]:
     """Create a new Vivado fileset of the given type (constrs/simulation/Source/BlockSrcs)."""
-    return manager.create_fileset(session_ref=session_ref, name=name, kind=kind, timeout_seconds=timeout_seconds)
+    return manager.create_fileset(
+        session_ref=session_ref,
+        name=name,
+        kind=kind,
+        timeout_seconds=timeout_seconds,
+        capture_diff=capture_diff,
+    )
 
 
 @mcp.tool()
@@ -372,6 +391,7 @@ def vivado_bd_apply(
     validate: bool = True,
     save: bool = True,
     timeout_seconds: int = 300,
+    capture_diff: bool = False,
 ) -> dict[str, object]:
     """Apply generic IP Integrator actions such as creating cells/ports, setting properties, and connecting nets."""
     return manager.bd_apply(
@@ -382,6 +402,7 @@ def vivado_bd_apply(
         validate=validate,
         save=save,
         timeout_seconds=timeout_seconds,
+        capture_diff=capture_diff,
     )
 
 
@@ -412,6 +433,7 @@ def vivado_bd_generate(
     make_wrapper: bool = True,
     wrapper_top: bool = True,
     timeout_seconds: int = 600,
+    capture_diff: bool = False,
 ) -> dict[str, object]:
     """Generate block design output products and optionally add a generic HDL wrapper."""
     return manager.bd_generate(
@@ -422,6 +444,7 @@ def vivado_bd_generate(
         make_wrapper=make_wrapper,
         wrapper_top=wrapper_top,
         timeout_seconds=timeout_seconds,
+        capture_diff=capture_diff,
     )
 
 
@@ -431,9 +454,16 @@ def vivado_run_synthesis(
     run_name: str = "synth_1",
     jobs: int | None = None,
     timeout_seconds: int = 3600,
+    capture_diff: bool = False,
 ) -> dict[str, object]:
     """Launch and wait for a Vivado synthesis run."""
-    return manager.launch_run(session_ref=session_ref, run_name=run_name, jobs=jobs, timeout_seconds=timeout_seconds)
+    return manager.launch_run(
+        session_ref=session_ref,
+        run_name=run_name,
+        jobs=jobs,
+        timeout_seconds=timeout_seconds,
+        capture_diff=capture_diff,
+    )
 
 
 @mcp.tool()
@@ -442,9 +472,16 @@ def vivado_run_implementation(
     run_name: str = "impl_1",
     jobs: int | None = None,
     timeout_seconds: int = 7200,
+    capture_diff: bool = False,
 ) -> dict[str, object]:
     """Launch and wait for a Vivado implementation run."""
-    return manager.launch_run(session_ref=session_ref, run_name=run_name, jobs=jobs, timeout_seconds=timeout_seconds)
+    return manager.launch_run(
+        session_ref=session_ref,
+        run_name=run_name,
+        jobs=jobs,
+        timeout_seconds=timeout_seconds,
+        capture_diff=capture_diff,
+    )
 
 
 @mcp.tool()
@@ -453,6 +490,7 @@ def vivado_generate_bitstream(
     run_name: str = "impl_1",
     jobs: int | None = None,
     timeout_seconds: int = 7200,
+    capture_diff: bool = False,
 ) -> dict[str, object]:
     """Run implementation through write_bitstream."""
     return manager.launch_run(
@@ -461,6 +499,7 @@ def vivado_generate_bitstream(
         jobs=jobs,
         to_step="write_bitstream",
         timeout_seconds=timeout_seconds,
+        capture_diff=capture_diff,
     )
 
 
@@ -484,6 +523,38 @@ def vivado_report(
 def vivado_project_summary(session_ref: str, timeout_seconds: int = 60) -> dict[str, object]:
     """Return structured information about the current Vivado project, files, runs, IP, and block designs."""
     return manager.project_summary(session_ref=session_ref, timeout_seconds=timeout_seconds)
+
+
+@mcp.tool()
+def vivado_capture_state(
+    session_ref: str,
+    label: str | None = None,
+    include_bd: bool = True,
+    validate_bd: bool = False,
+    timeout_seconds: int = 120,
+) -> dict[str, object]:
+    """Capture a JSON snapshot of project, fileset, constraint, and optional BD state."""
+    return manager.capture_state(
+        session_ref=session_ref,
+        label=label,
+        include_bd=include_bd,
+        validate_bd=validate_bd,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+@mcp.tool()
+def vivado_state_diff(
+    session_ref: str,
+    before_artifact_id: str,
+    after_artifact_id: str,
+) -> dict[str, object]:
+    """Diff two JSON state snapshots produced by vivado_capture_state."""
+    return manager.state_diff(
+        session_ref=session_ref,
+        before_artifact_id=before_artifact_id,
+        after_artifact_id=after_artifact_id,
+    )
 
 
 @mcp.tool()

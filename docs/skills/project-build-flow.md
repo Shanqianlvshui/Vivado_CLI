@@ -15,18 +15,20 @@ Use this for ordinary Project Mode FPGA work: create/open a project, add files, 
 3. Call `vivado_create_project` or open/register an existing project.
 4. Call `vivado_project_summary` to inspect the active project, files, runs, IP, and block designs.
 5. For complex projects, call `vivado_list_filesets` and `vivado_describe_fileset` to understand the active filesets, top modules, and included files before adding anything new.
-6. Call `vivado_add_sources` for RTL, IP, and XDC files. Use the `sources_fileset`, `include_dirs`, `defines`, `library`, `file_type`, `used_in`, and `processing_order` parameters when the project is not the default `sources_1`.
-7. Call `vivado_set_top` (with `top=None` to read, or pass a value to set) to confirm or change the top module.
-8. Call `vivado_set_file_properties` for files that need explicit LIBRARY / PROCESSING_ORDER / USED_IN overrides.
-9. Call `vivado_constraint_diagnostics` to audit XDC fileset ordering, USED_IN scopes, and UG903/UG949 methodology markers before synthesis on non-trivial projects.
-10. Call `vivado_run_synthesis`.
-11. If synthesis succeeds, call `vivado_run_implementation`.
-12. Call `vivado_report` for `timing_summary`, `utilization`, `drc`, and `messages`.
-13. Summarize WNS/TNS, utilization, critical warnings, and the first actionable errors.
+6. For non-trivial changes, call `vivado_capture_state` first or pass `capture_diff=true` to the mutating tool.
+7. Call `vivado_add_sources` for RTL, IP, and XDC files. Use the `sources_fileset`, `include_dirs`, `defines`, `library`, `file_type`, `used_in`, and `processing_order` parameters when the project is not the default `sources_1`.
+8. Call `vivado_set_top` (with `top=None` to read, or pass a value to set) to confirm or change the top module.
+9. Call `vivado_set_file_properties` for files that need explicit LIBRARY / PROCESSING_ORDER / USED_IN overrides.
+10. Call `vivado_constraint_diagnostics` to audit XDC fileset ordering, USED_IN scopes, and UG903/UG949 methodology markers before synthesis on non-trivial projects.
+11. Call `vivado_run_synthesis`.
+12. If synthesis succeeds, call `vivado_run_implementation`.
+13. Call `vivado_report` for `timing_summary`, `utilization`, `drc`, and `messages`.
+14. Summarize WNS/TNS, utilization, critical warnings, and the first actionable errors.
 
 ## Notes For AI
 
 - Prefer workflow tools over raw Tcl for repeatable project operations.
+- Use `capture_diff=true` on source/fileset/top/property/run operations when you need a before/after audit trail.
 - Link raw logs and reports as resources instead of pasting entire logs.
 - If a run fails, inspect errors and critical warnings before retrying.
 - Do not assume a timing failure is fixed by rerunning implementation; inspect timing reports first.

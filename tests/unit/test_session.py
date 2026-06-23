@@ -114,6 +114,70 @@ def test_project_summary_returns_structured_state(tmp_path: Path) -> None:
     manager.stop_session(session_ref, timeout_seconds=5)
 
 
+def test_state_capture_and_diff_writes_artifacts(tmp_path: Path) -> None:
+    wrapper = _make_fake_wrapper(tmp_path)
+    manager = VivadoSessionManager(default_workspace=tmp_path)
+    started = manager.start_session(vivado_path=str(wrapper), open_gui=False)
+    session_ref = str(started["session_ref"])
+
+    before = manager.capture_state(session_ref=session_ref, label="before", timeout_seconds=5)
+    after = manager.capture_state(session_ref=session_ref, label="after", timeout_seconds=5)
+
+    assert before["ok"] is True
+    assert before["snapshot_artifact_uri"].startswith(f"vivado://sessions/{session_ref}/artifacts/")
+    assert before["state"]["project"]["current_project"] == "fake_project"
+    assert after["digest"] == before["digest"]
+
+    before_artifact = before["snapshot_artifact_uri"].rsplit("/", 1)[-1]
+    after_artifact = after["snapshot_artifact_uri"].rsplit("/", 1)[-1]
+    diff = manager.state_diff(
+        session_ref=session_ref,
+        before_artifact_id=before["snapshot_artifact_uri"],
+        after_artifact_id=after_artifact,
+    )
+
+    assert diff["ok"] is True
+    assert diff["changed"] is False
+    assert diff["diff_artifact_uri"].startswith(f"vivado://sessions/{session_ref}/artifacts/")
+
+    manager.stop_session(session_ref, timeout_seconds=5)
+
+
+def test_capture_diff_wraps_raw_tcl_and_structured_tools(tmp_path: Path) -> None:
+    wrapper = _make_fake_wrapper(tmp_path)
+    manager = VivadoSessionManager(default_workspace=tmp_path)
+    started = manager.start_session(vivado_path=str(wrapper), open_gui=False)
+    session_ref = str(started["session_ref"])
+
+    raw = manager.run_tcl(
+        session_ref=session_ref,
+        tcl='return "version=[version -short]"',
+        timeout_seconds=5,
+        capture_diff=True,
+    )
+
+    assert raw["ok"] is True
+    assert raw["state_before"]["snapshot_artifact_uri"].startswith(f"vivado://sessions/{session_ref}/artifacts/")
+    assert raw["state_after"]["snapshot_artifact_uri"].startswith(f"vivado://sessions/{session_ref}/artifacts/")
+    assert raw["state_diff"]["ok"] is True
+    assert raw["state_diff"]["diff_artifact_uri"].startswith(f"vivado://sessions/{session_ref}/artifacts/")
+
+    top_v = tmp_path / "top.v"
+    top_v.write_text("// top\n", encoding="utf-8")
+    added = manager.add_sources(
+        session_ref=session_ref,
+        sources=[str(top_v)],
+        timeout_seconds=5,
+        capture_diff=True,
+    )
+
+    assert added["ok"] is True
+    assert added["result"] == "sources_updated"
+    assert added["state_diff"]["ok"] is True
+
+    manager.stop_session(session_ref, timeout_seconds=5)
+
+
 def test_block_design_workflow_uses_generic_tools(tmp_path: Path) -> None:
     wrapper = _make_fake_wrapper(tmp_path)
     manager = VivadoSessionManager(default_workspace=tmp_path)

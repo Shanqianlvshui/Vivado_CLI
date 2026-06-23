@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import re
 import signal
 import subprocess
@@ -9,6 +10,7 @@ import time
 import uuid
 from importlib import resources
 from pathlib import Path
+from typing import Callable
 from urllib.parse import quote, unquote
 
 from .gui_probe import probe_vivado_gui, wait_for_vivado_gui
@@ -160,7 +162,7 @@ class VivadoSessionManager:
 
     def read_artifact(self, session_ref: str, artifact_id: str, max_chars: int = 20000) -> dict[str, object]:
         running = self._get(session_ref)
-        relative = unquote(artifact_id)
+        relative = _artifact_relative(running.record.session_ref, artifact_id)
         path = (running.record.session_dir / relative).resolve()
         session_root = running.record.session_dir.resolve()
         if session_root not in [path, *path.parents]:
@@ -181,6 +183,75 @@ class VivadoSessionManager:
             "truncated": truncated,
         }
 
+    def capture_state(
+        self,
+        *,
+        session_ref: str,
+        label: str | None = None,
+        include_bd: bool = True,
+        validate_bd: bool = False,
+        timeout_seconds: int = 120,
+    ) -> dict[str, object]:
+        from .state_diff import state_digest
+
+        running = self._get(session_ref)
+        snapshots_dir = running.record.session_dir / "snapshots"
+        snapshots_dir.mkdir(parents=True, exist_ok=True)
+        snapshot_id = f"state_{_safe_label(label)}_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+        output_path = snapshots_dir / f"{snapshot_id}.json"
+
+        state = self._collect_state(
+            running=running,
+            include_bd=include_bd,
+            validate_bd=validate_bd,
+            timeout_seconds=timeout_seconds,
+        )
+        state["snapshot"] = {
+            "id": snapshot_id,
+            "label": label,
+            "created_at": _timestamp(),
+            "digest": state_digest(state),
+        }
+        output_path.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
+        return {
+            "ok": True,
+            "session_ref": session_ref,
+            "snapshot_id": snapshot_id,
+            "label": label,
+            "digest": state["snapshot"]["digest"],
+            "state": state,
+            "snapshot_path": str(output_path),
+            "snapshot_artifact_uri": artifact_uri(session_ref, output_path.relative_to(running.record.session_dir).as_posix()),
+        }
+
+    def state_diff(
+        self,
+        *,
+        session_ref: str,
+        before_artifact_id: str | None = None,
+        after_artifact_id: str | None = None,
+        before_state: dict[str, object] | None = None,
+        after_state: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        from .state_diff import diff_states
+
+        running = self._get(session_ref)
+        before = before_state or self._read_state_artifact(running, before_artifact_id, label="before_artifact_id")
+        after = after_state or self._read_state_artifact(running, after_artifact_id, label="after_artifact_id")
+        diff = diff_states(before, after)
+        diffs_dir = running.record.session_dir / "diffs"
+        diffs_dir.mkdir(parents=True, exist_ok=True)
+        output_path = diffs_dir / f"state_diff_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}.json"
+        output_path.write_text(json.dumps(diff, indent=2, sort_keys=True), encoding="utf-8")
+        return {
+            "ok": True,
+            "session_ref": session_ref,
+            "changed": diff["changed"],
+            "diff": diff,
+            "diff_path": str(output_path),
+            "diff_artifact_uri": artifact_uri(session_ref, output_path.relative_to(running.record.session_dir).as_posix()),
+        }
+
     def run_tcl(
         self,
         *,
@@ -188,12 +259,21 @@ class VivadoSessionManager:
         tcl: str,
         timeout_seconds: int = 60,
         expect_destructive: bool = False,
+        capture_diff: bool = False,
     ) -> dict[str, object]:
         running = self._get(session_ref)
         if running.record.capability_profile == "safe":
             raise PermissionError("Raw Tcl is disabled for safe capability profile")
-        result = self._submit_tcl(running, tcl, timeout_seconds=timeout_seconds)
-        return _result_to_dict(result, expect_destructive=expect_destructive)
+        return self._capture_diff_around(
+            running=running,
+            label="run_tcl",
+            capture_diff=capture_diff,
+            timeout_seconds=timeout_seconds,
+            operation=lambda: _result_to_dict(
+                self._submit_tcl(running, tcl, timeout_seconds=timeout_seconds),
+                expect_destructive=expect_destructive,
+            ),
+        )
 
     def source_tcl(
         self,
@@ -203,6 +283,7 @@ class VivadoSessionManager:
         tclargs: list[str] | None = None,
         timeout_seconds: int = 120,
         expect_destructive: bool = False,
+        capture_diff: bool = False,
     ) -> dict[str, object]:
         from .tcl import quote_tcl, set_argv_tcl
 
@@ -221,12 +302,20 @@ class VivadoSessionManager:
                 f"source {quote_tcl(path)}",
             ]
         )
-        result = self._submit_tcl(
-            running,
-            tcl=body,
+        return self._capture_diff_around(
+            running=running,
+            label="source_tcl",
+            capture_diff=capture_diff,
             timeout_seconds=timeout_seconds,
+            operation=lambda: _result_to_dict(
+                self._submit_tcl(
+                    running,
+                    tcl=body,
+                    timeout_seconds=timeout_seconds,
+                ),
+                expect_destructive=expect_destructive,
+            ),
         )
-        return _result_to_dict(result, expect_destructive=expect_destructive)
 
     def tcl_command_help(self, *, session_ref: str, command: str, timeout_seconds: int = 30) -> dict[str, object]:
         from .tcl import quote_tcl
@@ -347,6 +436,7 @@ class VivadoSessionManager:
         used_in: list[str] | None = None,
         processing_order: int | None = None,
         timeout_seconds: int = 120,
+        capture_diff: bool = False,
     ) -> dict[str, object]:
         from .tcl import add_sources_tcl
 
@@ -358,23 +448,31 @@ class VivadoSessionManager:
             self.path_policy.require_under_roots(path, label="include_dir", must_exist=False) for path in include_dirs or []
         ]
         running = self._get(session_ref)
-        result = self._submit_tcl(
-            running,
-            add_sources_tcl(
-                sources=source_paths,
-                constraints=constraint_paths,
-                top=top,
-                sources_fileset=sources_fileset,
-                include_dirs=include_paths,
-                defines=defines,
-                library=library,
-                file_type=file_type,
-                used_in=used_in,
-                processing_order=processing_order,
-            ),
+        return self._capture_diff_around(
+            running=running,
+            label="add_sources",
+            capture_diff=capture_diff,
             timeout_seconds=timeout_seconds,
+            operation=lambda: _result_to_dict(
+                self._submit_tcl(
+                    running,
+                    add_sources_tcl(
+                        sources=source_paths,
+                        constraints=constraint_paths,
+                        top=top,
+                        sources_fileset=sources_fileset,
+                        include_dirs=include_paths,
+                        defines=defines,
+                        library=library,
+                        file_type=file_type,
+                        used_in=used_in,
+                        processing_order=processing_order,
+                    ),
+                    timeout_seconds=timeout_seconds,
+                ),
+                expect_destructive=False,
+            ),
         )
-        return _result_to_dict(result, expect_destructive=False)
 
     def remove_sources(
         self,
@@ -384,6 +482,7 @@ class VivadoSessionManager:
         fileset: str | None = None,
         force: bool = False,
         timeout_seconds: int = 120,
+        capture_diff: bool = False,
     ) -> dict[str, object]:
         from .tcl import remove_files_tcl
 
@@ -391,12 +490,20 @@ class VivadoSessionManager:
             raise ValueError("paths must contain at least one source to remove")
         resolved = [self.path_policy.require_under_roots(path, label="source", must_exist=True) for path in paths]
         running = self._get(session_ref)
-        result = self._submit_tcl(
-            running,
-            remove_files_tcl(paths=resolved, fileset=fileset, force=force),
+        return self._capture_diff_around(
+            running=running,
+            label="remove_sources",
+            capture_diff=capture_diff,
             timeout_seconds=timeout_seconds,
+            operation=lambda: _result_to_dict(
+                self._submit_tcl(
+                    running,
+                    remove_files_tcl(paths=resolved, fileset=fileset, force=force),
+                    timeout_seconds=timeout_seconds,
+                ),
+                expect_destructive=True,
+            ),
         )
-        return _result_to_dict(result, expect_destructive=True)
 
     def set_file_properties(
         self,
@@ -406,6 +513,7 @@ class VivadoSessionManager:
         properties: dict[str, object],
         fileset: str | None = None,
         timeout_seconds: int = 60,
+        capture_diff: bool = False,
     ) -> dict[str, object]:
         from .tcl import set_file_properties_tcl
 
@@ -415,12 +523,20 @@ class VivadoSessionManager:
             raise ValueError("properties must contain at least one key/value pair")
         resolved = [self.path_policy.require_under_roots(path, label="file", must_exist=True) for path in paths]
         running = self._get(session_ref)
-        result = self._submit_tcl(
-            running,
-            set_file_properties_tcl(paths=resolved, properties=properties, fileset=fileset),
+        return self._capture_diff_around(
+            running=running,
+            label="set_file_properties",
+            capture_diff=capture_diff,
             timeout_seconds=timeout_seconds,
+            operation=lambda: _result_to_dict(
+                self._submit_tcl(
+                    running,
+                    set_file_properties_tcl(paths=resolved, properties=properties, fileset=fileset),
+                    timeout_seconds=timeout_seconds,
+                ),
+                expect_destructive=True,
+            ),
         )
-        return _result_to_dict(result, expect_destructive=True)
 
     def set_top(
         self,
@@ -429,16 +545,25 @@ class VivadoSessionManager:
         top: str | None = None,
         fileset: str | None = None,
         timeout_seconds: int = 60,
+        capture_diff: bool = False,
     ) -> dict[str, object]:
         from .tcl import set_top_tcl
 
         running = self._get(session_ref)
-        result = self._submit_tcl(
-            running,
-            set_top_tcl(top=top, fileset=fileset),
+        return self._capture_diff_around(
+            running=running,
+            label="set_top",
+            capture_diff=capture_diff and top is not None,
             timeout_seconds=timeout_seconds,
+            operation=lambda: _result_to_dict(
+                self._submit_tcl(
+                    running,
+                    set_top_tcl(top=top, fileset=fileset),
+                    timeout_seconds=timeout_seconds,
+                ),
+                expect_destructive=top is not None,
+            ),
         )
-        return _result_to_dict(result, expect_destructive=top is not None)
 
     def list_filesets(
         self,
@@ -472,18 +597,27 @@ class VivadoSessionManager:
         name: str,
         kind: str = "constrs",
         timeout_seconds: int = 120,
+        capture_diff: bool = False,
     ) -> dict[str, object]:
         from .tcl import create_fileset_tcl
 
         if not name.strip():
             raise ValueError("fileset name must not be empty")
         running = self._get(session_ref)
-        result = self._submit_tcl(
-            running,
-            create_fileset_tcl(name=name, kind=kind),
+        return self._capture_diff_around(
+            running=running,
+            label="create_fileset",
+            capture_diff=capture_diff,
             timeout_seconds=timeout_seconds,
+            operation=lambda: _result_to_dict(
+                self._submit_tcl(
+                    running,
+                    create_fileset_tcl(name=name, kind=kind),
+                    timeout_seconds=timeout_seconds,
+                ),
+                expect_destructive=True,
+            ),
         )
-        return _result_to_dict(result, expect_destructive=True)
 
     def describe_fileset(
         self,
@@ -597,6 +731,7 @@ class VivadoSessionManager:
         validate: bool = True,
         save: bool = True,
         timeout_seconds: int = 300,
+        capture_diff: bool = False,
     ) -> dict[str, object]:
         from .tcl import bd_apply_tcl
 
@@ -604,12 +739,20 @@ class VivadoSessionManager:
             raise ValueError("actions must contain at least one BD action")
         running = self._get(session_ref)
         resolved_bd_path = self.path_policy.require_under_roots(bd_path, label="bd_path", must_exist=True) if bd_path else None
-        raw_result = self._submit_tcl(
-            running,
-            bd_apply_tcl(actions=actions, design_name=design_name, bd_path=resolved_bd_path, validate=validate, save=save),
+        return self._capture_diff_around(
+            running=running,
+            label="bd_apply",
+            capture_diff=capture_diff,
             timeout_seconds=timeout_seconds,
+            operation=lambda: _result_to_dict(
+                self._submit_tcl(
+                    running,
+                    bd_apply_tcl(actions=actions, design_name=design_name, bd_path=resolved_bd_path, validate=validate, save=save),
+                    timeout_seconds=timeout_seconds,
+                ),
+                expect_destructive=True,
+            ),
         )
-        return _result_to_dict(raw_result, expect_destructive=True)
 
     def bd_validate(
         self,
@@ -641,23 +784,32 @@ class VivadoSessionManager:
         make_wrapper: bool = True,
         wrapper_top: bool = True,
         timeout_seconds: int = 600,
+        capture_diff: bool = False,
     ) -> dict[str, object]:
         from .tcl import bd_generate_tcl
 
         running = self._get(session_ref)
         resolved_bd_path = self.path_policy.require_under_roots(bd_path, label="bd_path", must_exist=True) if bd_path else None
-        raw_result = self._submit_tcl(
-            running,
-            bd_generate_tcl(
-                design_name=design_name,
-                bd_path=resolved_bd_path,
-                target=target,
-                make_wrapper=make_wrapper,
-                wrapper_top=wrapper_top,
-            ),
+        return self._capture_diff_around(
+            running=running,
+            label="bd_generate",
+            capture_diff=capture_diff,
             timeout_seconds=timeout_seconds,
+            operation=lambda: _result_to_dict(
+                self._submit_tcl(
+                    running,
+                    bd_generate_tcl(
+                        design_name=design_name,
+                        bd_path=resolved_bd_path,
+                        target=target,
+                        make_wrapper=make_wrapper,
+                        wrapper_top=wrapper_top,
+                    ),
+                    timeout_seconds=timeout_seconds,
+                ),
+                expect_destructive=True,
+            ),
         )
-        return _result_to_dict(raw_result, expect_destructive=True)
 
     def launch_run(
         self,
@@ -667,16 +819,25 @@ class VivadoSessionManager:
         jobs: int | None = None,
         to_step: str | None = None,
         timeout_seconds: int = 3600,
+        capture_diff: bool = False,
     ) -> dict[str, object]:
         from .tcl import launch_run_tcl
 
         running = self._get(session_ref)
-        result = self._submit_tcl(
-            running,
-            launch_run_tcl(run_name=run_name, jobs=jobs, to_step=to_step),
+        return self._capture_diff_around(
+            running=running,
+            label=f"launch_run_{run_name}",
+            capture_diff=capture_diff,
             timeout_seconds=timeout_seconds,
+            operation=lambda: _result_to_dict(
+                self._submit_tcl(
+                    running,
+                    launch_run_tcl(run_name=run_name, jobs=jobs, to_step=to_step),
+                    timeout_seconds=timeout_seconds,
+                ),
+                expect_destructive=False,
+            ),
         )
-        return _result_to_dict(result, expect_destructive=False)
 
     def report(
         self,
@@ -718,6 +879,162 @@ class VivadoSessionManager:
         result["summary_artifact_uri"] = artifact_uri(session_ref, output_path.relative_to(running.record.session_dir).as_posix())
         if output_path.exists():
             result["project_summary"] = parse_project_summary(output_path)
+        return result
+
+    def _collect_state(
+        self,
+        *,
+        running: "_RunningSession",
+        include_bd: bool,
+        validate_bd: bool,
+        timeout_seconds: int,
+    ) -> dict[str, object]:
+        state: dict[str, object] = {
+            "session_ref": running.record.session_ref,
+            "workspace_dir": str(running.record.workspace_dir),
+            "current_project_path": str(running.record.current_project_path) if running.record.current_project_path else None,
+            "project": {},
+            "filesets": {},
+            "constraints": {},
+            "block_design": {},
+            "errors": [],
+        }
+
+        errors = state["errors"]
+        assert isinstance(errors, list)
+        try:
+            project = self._project_summary_for_running(running, timeout_seconds=timeout_seconds)
+            state["project"] = project.get("project_summary", {})
+        except Exception as exc:
+            errors.append({"section": "project", "error": str(exc)})
+        try:
+            filesets = self._list_filesets_for_running(running, timeout_seconds=timeout_seconds)
+            state["filesets"] = filesets.get("filesets", {})
+        except Exception as exc:
+            errors.append({"section": "filesets", "error": str(exc)})
+        try:
+            constraints = self._constraint_diagnostics_for_running(running, timeout_seconds=timeout_seconds)
+            state["constraints"] = constraints.get("diagnostics", {})
+        except Exception as exc:
+            errors.append({"section": "constraints", "error": str(exc)})
+        if include_bd:
+            try:
+                bd = self._bd_summary_for_running(running, validate=validate_bd, timeout_seconds=timeout_seconds)
+                state["block_design"] = bd.get("bd_summary", {})
+            except Exception as exc:
+                errors.append({"section": "block_design", "error": str(exc)})
+        return state
+
+    def _read_state_artifact(self, running: "_RunningSession", artifact_id: str | None, *, label: str) -> dict[str, object]:
+        if not artifact_id:
+            raise ValueError(f"{label} is required when state payload is not provided")
+        relative = _artifact_relative(running.record.session_ref, artifact_id)
+        path = (running.record.session_dir / relative).resolve()
+        session_root = running.record.session_dir.resolve()
+        if session_root not in [path, *path.parents]:
+            raise PermissionError("State artifact path escapes session directory")
+        if not path.exists() or not path.is_file():
+            raise FileNotFoundError(f"State artifact not found: {relative}")
+        data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+        if not isinstance(data, dict):
+            raise ValueError(f"State artifact is not a JSON object: {relative}")
+        return data
+
+    def _capture_diff_around(
+        self,
+        *,
+        running: "_RunningSession",
+        label: str,
+        capture_diff: bool,
+        timeout_seconds: int,
+        operation: Callable[[], dict[str, object]],
+    ) -> dict[str, object]:
+        before = None
+        snapshot_timeout = _snapshot_timeout(timeout_seconds)
+        if capture_diff:
+            before = self.capture_state(
+                session_ref=running.record.session_ref,
+                label=f"{label}_before",
+                timeout_seconds=snapshot_timeout,
+            )
+        result = operation()
+        if capture_diff:
+            after = self.capture_state(
+                session_ref=running.record.session_ref,
+                label=f"{label}_after",
+                timeout_seconds=snapshot_timeout,
+            )
+            result["state_before"] = _snapshot_ref(before)
+            result["state_after"] = _snapshot_ref(after)
+            result["state_diff"] = self.state_diff(
+                session_ref=running.record.session_ref,
+                before_state=before["state"],
+                after_state=after["state"],
+            )
+        return result
+
+    def _project_summary_for_running(self, running: "_RunningSession", *, timeout_seconds: int) -> dict[str, object]:
+        from .project_summary import parse_project_summary
+        from .tcl import project_summary_tcl
+
+        summaries_dir = running.record.session_dir / "summaries"
+        summaries_dir.mkdir(parents=True, exist_ok=True)
+        output_path = summaries_dir / f"project_summary_{uuid.uuid4().hex[:8]}.tsv"
+        raw_result = self._submit_tcl(running, project_summary_tcl(output_path), timeout_seconds=timeout_seconds)
+        result = _result_to_dict(raw_result, expect_destructive=False)
+        result["summary_path"] = str(output_path)
+        result["summary_artifact_uri"] = artifact_uri(running.record.session_ref, output_path.relative_to(running.record.session_dir).as_posix())
+        if output_path.exists():
+            result["project_summary"] = parse_project_summary(output_path)
+        return result
+
+    def _list_filesets_for_running(self, running: "_RunningSession", *, timeout_seconds: int) -> dict[str, object]:
+        from .fileset_summary import parse_list_filesets
+        from .tcl import list_filesets_tcl
+
+        summaries_dir = running.record.session_dir / "summaries"
+        summaries_dir.mkdir(parents=True, exist_ok=True)
+        output_path = summaries_dir / f"filesets_{uuid.uuid4().hex[:8]}.tsv"
+        raw_result = self._submit_tcl(running, list_filesets_tcl(output_path), timeout_seconds=timeout_seconds)
+        result = _result_to_dict(raw_result, expect_destructive=False)
+        result["summary_path"] = str(output_path)
+        result["summary_artifact_uri"] = artifact_uri(running.record.session_ref, output_path.relative_to(running.record.session_dir).as_posix())
+        if output_path.exists():
+            result["filesets"] = parse_list_filesets(output_path)
+        return result
+
+    def _constraint_diagnostics_for_running(self, running: "_RunningSession", *, timeout_seconds: int) -> dict[str, object]:
+        from .fileset_summary import parse_constraint_diagnostics
+        from .tcl import constraint_diagnostics_tcl
+
+        summaries_dir = running.record.session_dir / "summaries"
+        summaries_dir.mkdir(parents=True, exist_ok=True)
+        output_path = summaries_dir / f"constraint_diag_{uuid.uuid4().hex[:8]}.tsv"
+        raw_result = self._submit_tcl(running, constraint_diagnostics_tcl(output_path), timeout_seconds=timeout_seconds)
+        result = _result_to_dict(raw_result, expect_destructive=False)
+        result["summary_path"] = str(output_path)
+        result["summary_artifact_uri"] = artifact_uri(running.record.session_ref, output_path.relative_to(running.record.session_dir).as_posix())
+        if output_path.exists():
+            result["diagnostics"] = parse_constraint_diagnostics(output_path)
+        return result
+
+    def _bd_summary_for_running(self, running: "_RunningSession", *, validate: bool, timeout_seconds: int) -> dict[str, object]:
+        from .bd_summary import parse_bd_summary
+        from .tcl import bd_summary_tcl
+
+        summaries_dir = running.record.session_dir / "summaries"
+        summaries_dir.mkdir(parents=True, exist_ok=True)
+        output_path = summaries_dir / f"bd_summary_{uuid.uuid4().hex[:8]}.tsv"
+        raw_result = self._submit_tcl(
+            running,
+            bd_summary_tcl(output_path, validate=validate),
+            timeout_seconds=timeout_seconds,
+        )
+        result = _result_to_dict(raw_result, expect_destructive=False)
+        result["summary_path"] = str(output_path)
+        result["summary_artifact_uri"] = artifact_uri(running.record.session_ref, output_path.relative_to(running.record.session_dir).as_posix())
+        if output_path.exists():
+            result["bd_summary"] = parse_bd_summary(output_path)
         return result
 
     def _submit_tcl(self, running: "_RunningSession", tcl: str, *, timeout_seconds: int) -> TclCommandResult:
@@ -938,6 +1255,38 @@ def _process_exists(pid: int) -> bool:
     except OSError:
         return False
     return True
+
+
+def _timestamp() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _safe_label(label: str | None) -> str:
+    value = re.sub(r"[^A-Za-z0-9_.-]+", "_", (label or "snapshot").strip())
+    return value.strip("._") or "snapshot"
+
+
+def _snapshot_timeout(operation_timeout_seconds: int) -> int:
+    return min(max(int(operation_timeout_seconds), 30), 120)
+
+
+def _artifact_relative(session_ref: str, artifact_id_or_uri: str) -> str:
+    marker = f"vivado://sessions/{session_ref}/artifacts/"
+    if artifact_id_or_uri.startswith(marker):
+        artifact_id_or_uri = artifact_id_or_uri[len(marker) :]
+    return unquote(artifact_id_or_uri)
+
+
+def _snapshot_ref(snapshot: dict[str, object] | None) -> dict[str, object] | None:
+    if snapshot is None:
+        return None
+    return {
+        "snapshot_id": snapshot.get("snapshot_id"),
+        "label": snapshot.get("label"),
+        "digest": snapshot.get("digest"),
+        "snapshot_artifact_uri": snapshot.get("snapshot_artifact_uri"),
+        "snapshot_path": snapshot.get("snapshot_path"),
+    }
 
 
 def _parse_result(command_id: str, result_path: Path, command_path: Path) -> TclCommandResult:

@@ -27,6 +27,7 @@ Current design documents:
 - Run synthesis, implementation, and bitstream generation.
 - Generate timing, utilization, DRC, and message reports.
 - Parse common report outputs into compact structured summaries.
+- Capture JSON state snapshots and diff project/fileset/constraint/BD state before and after risky or long-running operations.
 - Expose logs and generated reports as MCP resources.
 - Provide built-in help/skills so AI clients can learn the intended Vivado workflows before acting.
 - Package AMD official Vivado documentation metadata and topic guidance as the authority layer for help and expert Tcl planning.
@@ -51,6 +52,8 @@ The MCP should expose tutorial content through both tools and resources:
 - `vivado_search_official_docs`
 - `vivado_tcl_command_help`
 - `vivado_review_tcl`
+- `vivado_capture_state`
+- `vivado_state_diff`
 - `vivado_sync_official_docs`
 - `vivado_download_xilinx_pdf`
 - `vivado_search_xilinx_docs`
@@ -113,8 +116,9 @@ AI clients should use the MCP in this order:
 7. Call `vivado_tcl_command_help(command=...)` before unfamiliar Tcl commands; it combines official search, MCP tool coverage, and optional installed Vivado help.
 8. Call `vivado_review_tcl(tcl=...)` before expert-mode execution.
 9. Use `vivado_run_tcl` or `vivado_source_tcl` only for commands that are not yet modeled as workflow tools; set `expect_destructive=true` when the review requires it.
-10. After every mutating action, call `vivado_project_summary`, `vivado_bd_summary`, `vivado_report`, or `vivado_list_artifacts` to inspect the resulting state.
-11. Call `vivado_focus_gui` only when the user explicitly wants Vivado brought to the foreground.
+10. For risky or long-running changes, call `vivado_capture_state` before/after and `vivado_state_diff`, or pass `capture_diff=true` to supported mutating tools.
+11. After every mutating action, call `vivado_project_summary`, `vivado_bd_summary`, `vivado_report`, or `vivado_list_artifacts` to inspect the resulting state.
+12. Call `vivado_focus_gui` only when the user explicitly wants Vivado brought to the foreground.
 
 ## First Manual Test
 
@@ -144,6 +148,8 @@ After connecting the MCP client, use this sequence:
 - `vivado_source_tcl`
 - `vivado_review_tcl`
 - `vivado_tcl_command_help`
+- `vivado_capture_state`
+- `vivado_state_diff`
 - `vivado_create_project`
 - `vivado_open_project`
 - `vivado_add_sources`
@@ -197,6 +203,8 @@ vivado://sessions/{session_ref}/artifacts/{artifact_id}
 ```
 
 Use `vivado_list_artifacts` to discover artifact URIs and `vivado_read_artifact` to read text artifacts. `vivado_report` also returns a best-effort `report_summary` for timing, utilization, DRC, and message reports. `vivado_project_summary` returns the current project, source files, runs, IP, and block designs as structured data.
+
+`vivado_capture_state` writes a JSON snapshot of project, fileset, constraint, and optional block-design state. `vivado_state_diff` compares two snapshot artifacts. Supported mutating tools, including expert Tcl, source/fileset/property/top operations, BD apply/generate, and run launch helpers, accept `capture_diff=true` to return before/after snapshot artifact URIs plus a diff artifact.
 
 ## Official Reference Resources
 

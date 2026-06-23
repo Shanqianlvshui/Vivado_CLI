@@ -42,6 +42,12 @@ def test_help_topic_points_to_skill() -> None:
     tcl_help = help_topic("raw-tcl")
     assert "vivado_tcl_command_help" in tcl_help["recommended_tools"]
     assert "vivado_review_tcl" in tcl_help["recommended_tools"]
+    assert "vivado_capture_state" in tcl_help["recommended_tools"]
+    assert "vivado_state_diff" in tcl_help["recommended_tools"]
+
+    project_help = help_topic("project")
+    assert "vivado_capture_state" in project_help["recommended_tools"]
+    assert "vivado_state_diff" in project_help["recommended_tools"]
 
 
 def test_skills_index_contains_resource_uris() -> None:

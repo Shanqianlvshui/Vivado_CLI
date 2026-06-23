@@ -23,6 +23,8 @@ async def test_mcp_server_lists_core_tools() -> None:
                 "vivado_review_tcl",
                 "vivado_tcl_command_help",
                 "vivado_project_summary",
+                "vivado_capture_state",
+                "vivado_state_diff",
                 "vivado_add_sources",
                 "vivado_remove_sources",
                 "vivado_set_file_properties",

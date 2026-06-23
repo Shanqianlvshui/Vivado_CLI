@@ -10,9 +10,10 @@ Use this only when the active capability profile is `trusted-local` or `unrestri
 4. Call `vivado_review_tcl` on the final snippet before execution.
 5. Prefer `vivado_source_tcl` for longer scripts and `vivado_run_tcl` for short probes.
 6. Set `expect_destructive=true` when `vivado_review_tcl` reports destructive, overwrite, reset, delete, or hardware-affecting behavior.
-7. Keep commands small enough that failures are easy to isolate.
-8. Read the command result artifact and relevant log resource.
-9. If the Tcl mutated project state, call `vivado_session_state` again.
+7. For project-mutating Tcl, pass `capture_diff=true` or call `vivado_capture_state` before and after execution.
+8. Keep commands small enough that failures are easy to isolate.
+9. Read the command result artifact, relevant log resource, and any `state_diff` artifact.
+10. If the Tcl mutated project state, call `vivado_session_state` again.
 
 ## Notes For AI
 
@@ -20,3 +21,4 @@ Use this only when the active capability profile is `trusted-local` or `unrestri
 - Avoid Tcl commands that call external shells unless the user explicitly asks.
 - Prefer structured MCP tools when `vivado_tcl_command_help` says the command is covered.
 - Use `expect_destructive=true` for commands that delete, overwrite, reset runs, or modify hardware/programming state.
+- Use `capture_diff=true` when the expected effect should be auditable across project/fileset/constraint/BD summaries.

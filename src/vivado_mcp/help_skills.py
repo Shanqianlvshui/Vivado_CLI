@@ -113,7 +113,14 @@ def help_topic(topic: str | None = None) -> dict[str, object]:
         return {
             "topic": "project_flow",
             "summary": "Use project workflow tools for repeatable Vivado operations before falling back to raw Tcl.",
-            "recommended_tools": ["vivado_create_project", "vivado_add_sources", "vivado_run_synthesis", "vivado_report"],
+            "recommended_tools": [
+                "vivado_create_project",
+                "vivado_capture_state",
+                "vivado_add_sources",
+                "vivado_state_diff",
+                "vivado_run_synthesis",
+                "vivado_report",
+            ],
             "related_resources": ["vivado://skills/project-build-flow"],
         }
     if normalized in {"bd", "block-design", "block-design-flow", "ip-integrator", "ipi"}:
@@ -136,9 +143,11 @@ def help_topic(topic: str | None = None) -> dict[str, object]:
             "recommended_tools": [
                 "vivado_tcl_command_help",
                 "vivado_review_tcl",
+                "vivado_capture_state",
                 "vivado_session_state",
                 "vivado_run_tcl",
                 "vivado_source_tcl",
+                "vivado_state_diff",
             ],
             "related_resources": ["vivado://skills/raw-tcl-expert"],
         }
@@ -187,8 +196,10 @@ def suggest_next_steps(
             "recommendations": [
                 {"tool": "vivado_tcl_command_help", "why": "Check official docs, current Vivado help, and MCP structured-tool coverage before writing Tcl."},
                 {"tool": "vivado_review_tcl", "why": "Review high-risk Tcl before expert execution."},
+                {"tool": "vivado_capture_state", "why": "Capture state before risky Tcl, or pass capture_diff=true when executing."},
                 {"tool": "vivado_session_state", "why": "Confirm the managed session is idle before raw Tcl."},
                 {"tool": "vivado_run_tcl", "why": "Run a small Tcl probe or mutation through the bridge."},
+                {"tool": "vivado_state_diff", "why": "Compare before/after snapshots after project-mutating Tcl."},
             ],
             "related_resources": ["vivado://skills/raw-tcl-expert"],
         }
@@ -209,7 +220,9 @@ def suggest_next_steps(
         }
     return {
         "recommendations": [
+            {"tool": "vivado_capture_state", "why": "Capture a baseline before mutating project state."},
             {"tool": "vivado_run_synthesis", "why": "Run synthesis before implementation."},
+            {"tool": "vivado_state_diff", "why": "Compare before/after state when a build or setup step changed the project."},
             {"tool": "vivado_report", "why": "Inspect timing/utilization/messages after each build step."},
         ],
         "related_resources": ["vivado://skills/project-build-flow"],
