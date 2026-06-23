@@ -14,11 +14,12 @@ Use this for ordinary Project Mode FPGA work: create/open a project, add files, 
 8. Call `vivado_xdc_order_check` before synthesis when constraints changed.
 9. Call `vivado_run_synthesis`.
 10. If synthesis succeeds, call `vivado_run_implementation`.
-11. Call `vivado_report` for `timing_summary`, `utilization`, `drc`, and `messages`.
+11. Call `vivado_analyze_reports` for timing, utilization, DRC, methodology, and power diagnostics.
+12. Use targeted `vivado_report` calls after the aggregate analysis identifies a failure area.
 
 ## Notes For AI
 
 - Prefer workflow tools over raw Tcl for repeatable project operations.
 - Use `capture_diff=true` on source/fileset/top/property/run operations when you need a before/after audit trail.
 - Link raw logs and reports as resources instead of pasting entire logs.
-- If a run fails, inspect errors and critical warnings before retrying.
+- If a run fails, inspect `vivado_analyze_reports` issues before retrying.

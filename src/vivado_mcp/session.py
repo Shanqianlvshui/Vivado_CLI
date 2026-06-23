@@ -1010,6 +1010,63 @@ class VivadoSessionManager:
             result["report_summary"] = parse_report(report_type, report_text)
         return result
 
+    def analyze_reports(
+        self,
+        *,
+        session_ref: str,
+        report_types: list[str] | None = None,
+        timeout_seconds: int = 300,
+    ) -> dict[str, object]:
+        from .report_parser import analyze_report_summaries
+
+        selected = report_types or ["timing_summary", "utilization", "drc", "power", "methodology"]
+        running = self._get(session_ref)
+        reports: dict[str, dict[str, object]] = {}
+        summaries: dict[str, dict[str, object]] = {}
+        errors: list[dict[str, object]] = []
+        for report_type in selected:
+            try:
+                report = self.report(session_ref=session_ref, report_type=report_type, timeout_seconds=timeout_seconds)
+            except Exception as exc:
+                errors.append({"report_type": report_type, "error": str(exc)})
+                continue
+            reports[report_type] = {
+                "ok": report.get("ok"),
+                "report_path": report.get("report_path"),
+                "report_artifact_uri": _path_artifact_uri(Path(str(report.get("report_path")))) if report.get("report_path") else None,
+                "result_artifact_uri": report.get("result_artifact_uri"),
+                "command_artifact_uri": report.get("command_artifact_uri"),
+            }
+            summary = report.get("report_summary")
+            if isinstance(summary, dict):
+                summaries[report_type] = summary
+        analysis = analyze_report_summaries(summaries)
+        if errors:
+            analysis.setdefault("issues", []).append(
+                {
+                    "issue_id": "report.generation_failed",
+                    "severity": "medium",
+                    "reports": errors,
+                    "next_step": "Inspect command artifacts and confirm the design stage supports the requested reports.",
+                    "official_doc_topic": "reports",
+                    "official_references": ["UG906"],
+                }
+            )
+        analyses_dir = running.record.session_dir / "analyses"
+        analyses_dir.mkdir(parents=True, exist_ok=True)
+        output_path = analyses_dir / f"report_analysis_{uuid.uuid4().hex[:8]}.json"
+        output_payload = {"reports": reports, "summaries": summaries, "analysis": analysis}
+        output_path.write_text(json.dumps(output_payload, indent=2, sort_keys=True), encoding="utf-8")
+        return {
+            "ok": True,
+            "session_ref": session_ref,
+            "reports": reports,
+            "summaries": summaries,
+            "analysis": analysis,
+            "analysis_path": str(output_path),
+            "analysis_artifact_uri": artifact_uri(session_ref, output_path.relative_to(running.record.session_dir).as_posix()),
+        }
+
     def project_summary(self, *, session_ref: str, timeout_seconds: int = 60) -> dict[str, object]:
         from .project_summary import parse_project_summary
         from .tcl import project_summary_tcl

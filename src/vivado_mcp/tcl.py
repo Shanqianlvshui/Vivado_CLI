@@ -487,6 +487,7 @@ def report_tcl(report_type: str, output_path: Path) -> str:
         "utilization": "report_utilization",
         "drc": "report_drc",
         "power": "report_power",
+        "methodology": "report_methodology",
         "clock_interaction": "report_clock_interaction",
         "messages": "report_messages",
     }

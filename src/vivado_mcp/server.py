@@ -576,7 +576,7 @@ def vivado_generate_bitstream(
 @mcp.tool()
 def vivado_report(
     session_ref: str,
-    report_type: Literal["timing_summary", "timing_paths", "utilization", "drc", "power", "clock_interaction", "messages"],
+    report_type: Literal["timing_summary", "timing_paths", "utilization", "drc", "power", "methodology", "clock_interaction", "messages"],
     output_name: str | None = None,
     timeout_seconds: int = 300,
 ) -> dict[str, object]:
@@ -587,6 +587,16 @@ def vivado_report(
         output_name=output_name,
         timeout_seconds=timeout_seconds,
     )
+
+
+@mcp.tool()
+def vivado_analyze_reports(
+    session_ref: str,
+    report_types: list[Literal["timing_summary", "timing_paths", "utilization", "drc", "power", "methodology", "messages"]] | None = None,
+    timeout_seconds: int = 300,
+) -> dict[str, object]:
+    """Generate common reports and return structured diagnostics with next-step guidance."""
+    return manager.analyze_reports(session_ref=session_ref, report_types=report_types, timeout_seconds=timeout_seconds)
 
 
 @mcp.tool()

@@ -90,9 +90,33 @@ def test_report_writes_artifact(tmp_path: Path) -> None:
 
     report = manager.report(session_ref=session_ref, report_type="timing_summary", timeout_seconds=5)
     assert report["ok"] is True
-    assert "FAKE REPORT" in report["report_text"]
+    assert "FAKE TIMING REPORT" in report["report_text"]
     assert report["report_summary"]["parsed"] is True
-    assert report["report_summary"]["status"] == "pass"
+    assert report["report_summary"]["status"] == "fail"
+    manager.stop_session(session_ref, timeout_seconds=5)
+
+
+def test_analyze_reports_generates_diagnostics(tmp_path: Path) -> None:
+    wrapper = _make_fake_wrapper(tmp_path)
+    manager = VivadoSessionManager(default_workspace=tmp_path)
+    started = manager.start_session(vivado_path=str(wrapper), open_gui=False)
+    session_ref = str(started["session_ref"])
+
+    result = manager.analyze_reports(
+        session_ref=session_ref,
+        report_types=["timing_summary", "utilization", "drc", "power", "methodology"],
+        timeout_seconds=5,
+    )
+
+    issue_ids = [issue["issue_id"] for issue in result["analysis"]["issues"]]
+    assert result["ok"] is True
+    assert result["analysis"]["ok"] is False
+    assert issue_ids[:2] == ["drc.error", "timing.setup_failed"]
+    assert "utilization.high" in issue_ids
+    assert "power.high_total" in issue_ids
+    assert "methodology.critical_warning" in issue_ids
+    assert result["analysis_artifact_uri"].startswith(f"vivado://sessions/{session_ref}/artifacts/")
+    assert result["reports"]["timing_summary"]["report_artifact_uri"].startswith(f"vivado://sessions/{session_ref}/artifacts/")
     manager.stop_session(session_ref, timeout_seconds=5)
 
 

@@ -26,8 +26,8 @@ Current design documents:
 - Audit XDC constraint filesets: loading order, per-file command markers, USED_IN scopes, methodology markers, and basic UG903/UG949 sanity warnings.
 - Create, inspect, mutate, validate, and generate generic IP Integrator block designs.
 - Run synthesis, implementation, and bitstream generation.
-- Generate timing, utilization, DRC, and message reports.
-- Parse common report outputs into compact structured summaries.
+- Generate timing, utilization, DRC, methodology, power, and message reports.
+- Parse common report outputs into compact structured summaries and aggregate report diagnostics with next-step guidance.
 - Capture JSON state snapshots and diff project/fileset/constraint/BD state before and after risky or long-running operations.
 - Expose logs and generated reports as MCP resources.
 - Provide built-in help/skills so AI clients can learn the intended Vivado workflows before acting.
@@ -119,7 +119,7 @@ AI clients should use the MCP in this order:
 9. Call `vivado_review_tcl(tcl=...)` before expert-mode execution.
 10. Use `vivado_run_tcl` or `vivado_source_tcl` only for commands that are not yet modeled as workflow tools; set `expect_destructive=true` when the review requires it.
 11. For risky or long-running changes, call `vivado_capture_state` before/after and `vivado_state_diff`, or pass `capture_diff=true` to supported mutating tools.
-12. After every mutating action, call `vivado_project_summary`, `vivado_bd_summary`, `vivado_report`, or `vivado_list_artifacts` to inspect the resulting state.
+12. After every mutating action, call `vivado_project_summary`, `vivado_bd_summary`, `vivado_analyze_reports`, or `vivado_list_artifacts` to inspect the resulting state.
 13. Call `vivado_focus_gui` only when the user explicitly wants Vivado brought to the foreground.
 
 ## First Manual Test
@@ -175,6 +175,7 @@ After connecting the MCP client, use this sequence:
 - `vivado_run_implementation`
 - `vivado_generate_bitstream`
 - `vivado_report`
+- `vivado_analyze_reports`
 - `vivado_project_summary`
 - `vivado_list_artifacts`
 - `vivado_read_artifact`
@@ -208,7 +209,7 @@ Command files, result files, logs, and reports are stored under the managed sess
 vivado://sessions/{session_ref}/artifacts/{artifact_id}
 ```
 
-Use `vivado_list_artifacts` to discover artifact URIs and `vivado_read_artifact` to read text artifacts. `vivado_report` also returns a best-effort `report_summary` for timing, utilization, DRC, and message reports. `vivado_project_summary` returns the current project, source files, runs, IP, and block designs as structured data.
+Use `vivado_list_artifacts` to discover artifact URIs and `vivado_read_artifact` to read text artifacts. `vivado_report` also returns a best-effort `report_summary` for timing, utilization, DRC, methodology, power, and message reports. `vivado_analyze_reports` generates selected reports, ranks timing/utilization/DRC/power/methodology issues, and writes a JSON analysis artifact. `vivado_project_summary` returns the current project, source files, runs, IP, and block designs as structured data.
 
 `vivado_capture_state` writes a JSON snapshot of project, fileset, constraint, and optional block-design state. `vivado_state_diff` compares two snapshot artifacts. Supported mutating tools, including expert Tcl, source/fileset/property/top operations, BD apply/generate, and run launch helpers, accept `capture_diff=true` to return before/after snapshot artifact URIs plus a diff artifact.
 

@@ -211,7 +211,19 @@ def _result_for(body: str) -> str:
     if report_match:
         path = Path(report_match.group(1))
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("FAKE REPORT\nWNS 0.000\n", encoding="utf-8")
+        if "report_timing_summary" in body:
+            text = "FAKE TIMING REPORT\nWNS(ns) -0.125\nTNS(ns) -1.250\nFailing Endpoints: 4\n"
+        elif "report_utilization" in body:
+            text = "FAKE UTILIZATION REPORT\n| DSPs | 95 | 100 | 95.0 |\n| CLB LUTs | 1,234 | 10,000 | 12.34 |\n"
+        elif "report_drc" in body:
+            text = "FAKE DRC REPORT\nERROR: [DRC NSTD-1] Unspecified I/O Standard\n"
+        elif "report_power" in body:
+            text = "FAKE POWER REPORT\nTotal On-Chip Power (W) 7.500\nDynamic (W) 6.000\nDevice Static (W) 1.500\n"
+        elif "report_methodology" in body:
+            text = "FAKE METHODOLOGY REPORT\nCRITICAL WARNING: [METHODOLOGY TIMING-1] Review clocks\n"
+        else:
+            text = "FAKE REPORT\nWNS 0.000\n"
+        path.write_text(text, encoding="utf-8")
         return f"report={path}"
     if "vivado_mcp_bridge_forever" in body:
         return "stopping"

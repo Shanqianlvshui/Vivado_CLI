@@ -123,6 +123,7 @@ def help_topic(topic: str | None = None) -> dict[str, object]:
                 "vivado_xdc_order_check",
                 "vivado_state_diff",
                 "vivado_run_synthesis",
+                "vivado_analyze_reports",
                 "vivado_report",
             ],
             "related_resources": ["vivado://skills/project-build-flow"],
@@ -166,6 +167,18 @@ def help_topic(topic: str | None = None) -> dict[str, object]:
                 "vivado_constraint_diagnostics",
             ],
             "related_resources": ["vivado://skills/fileset-constraint-flow"],
+        }
+    if normalized in {"report", "reports", "timing", "timing-closure", "utilization", "drc", "power", "methodology"}:
+        return {
+            "topic": "report_diagnostics",
+            "summary": "Generate common Vivado reports and analyze timing, utilization, DRC, power, and methodology findings before choosing the next closure action.",
+            "recommended_tools": [
+                "vivado_analyze_reports",
+                "vivado_report",
+                "vivado_search_official_docs",
+                "vivado_tcl_command_help",
+            ],
+            "related_resources": ["vivado://skills/project-build-flow", "vivado://official-docs/index"],
         }
     if normalized in {"raw-tcl", "tcl", "expert"}:
         return {
@@ -252,6 +265,30 @@ def suggest_next_steps(
             ],
             "related_resources": ["vivado://skills/fileset-constraint-flow"],
         }
+    if any(
+        word in text
+        for word in (
+            "report",
+            "timing",
+            "wns",
+            "tns",
+            "utilization",
+            "drc",
+            "methodology",
+            "power",
+            "closure",
+            "critical warning",
+        )
+    ):
+        return {
+            "recommendations": [
+                {"tool": "vivado_analyze_reports", "why": "Generate common reports and rank timing, utilization, DRC, power, and methodology findings."},
+                {"tool": "vivado_report", "why": "Generate a specific report when the analysis points at one area."},
+                {"tool": "vivado_search_official_docs", "why": "Use UG906/UG949/UG1292/UG907 guidance for the reported failure mode."},
+                {"tool": "vivado_tcl_command_help", "why": "Check exact report command syntax before custom report Tcl."},
+            ],
+            "related_resources": ["vivado://skills/project-build-flow", "vivado://official-docs/index"],
+        }
     if "tcl" in text:
         return {
             "recommendations": [
@@ -284,7 +321,8 @@ def suggest_next_steps(
             {"tool": "vivado_capture_state", "why": "Capture a baseline before mutating project state."},
             {"tool": "vivado_run_synthesis", "why": "Run synthesis before implementation."},
             {"tool": "vivado_state_diff", "why": "Compare before/after state when a build or setup step changed the project."},
-            {"tool": "vivado_report", "why": "Inspect timing/utilization/messages after each build step."},
+            {"tool": "vivado_analyze_reports", "why": "Inspect timing/utilization/DRC/power/methodology after each build step."},
+            {"tool": "vivado_report", "why": "Generate a targeted report after the aggregate analysis points at a failure area."},
         ],
         "related_resources": ["vivado://skills/project-build-flow"],
     }

@@ -22,15 +22,16 @@ Use this for ordinary Project Mode FPGA work: create/open a project, add files, 
 10. Call `vivado_xdc_order_check` and `vivado_constraint_diagnostics` to audit XDC fileset ordering, USED_IN scopes, and UG903/UG949 methodology markers before synthesis on non-trivial projects.
 11. Call `vivado_run_synthesis`.
 12. If synthesis succeeds, call `vivado_run_implementation`.
-13. Call `vivado_report` for `timing_summary`, `utilization`, `drc`, and `messages`.
-14. Summarize WNS/TNS, utilization, critical warnings, and the first actionable errors.
+13. Call `vivado_analyze_reports` for `timing_summary`, `utilization`, `drc`, `power`, and `methodology`.
+14. Use targeted `vivado_report` calls only after the aggregate analysis points at the next failure area.
+15. Summarize WNS/TNS, utilization pressure, DRC/methodology rule IDs, power totals, and the first actionable errors.
 
 ## Notes For AI
 
 - Prefer workflow tools over raw Tcl for repeatable project operations.
 - Use `capture_diff=true` on source/fileset/top/property/run operations when you need a before/after audit trail.
 - Link raw logs and reports as resources instead of pasting entire logs.
-- If a run fails, inspect errors and critical warnings before retrying.
+- If a run fails, inspect `vivado_analyze_reports` issues before retrying.
 - Do not assume a timing failure is fixed by rerunning implementation; inspect timing reports first.
 
 ## Common Problems
@@ -38,4 +39,4 @@ Use this for ordinary Project Mode FPGA work: create/open a project, add files, 
 - `top_module_not_found`: check source sets and top property.
 - `source_file_missing`: verify resolved paths and workspace roots.
 - `license_error`: inspect the Vivado log before changing project files.
-- `timing_failed`: generate timing summary and report critical paths.
+- `timing_failed`: call `vivado_analyze_reports`, then generate timing paths for the worst setup or hold failure.
