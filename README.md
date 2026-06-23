@@ -25,6 +25,7 @@ Current design documents:
 - Apply structured source-fileset and constraint-set changes with optional before/after state diffs.
 - Audit XDC constraint filesets: loading order, per-file command markers, USED_IN scopes, methodology markers, and basic UG903/UG949 sanity warnings.
 - Search, create, inspect, upgrade, and generate output products for Vivado project IP.
+- Prepare simulation filesets, launch Vivado simulation, and parse xsim/xelab/xvlog/xvhdl logs.
 - Create, inspect, mutate, validate, and generate generic IP Integrator block designs.
 - Run synthesis, implementation, and bitstream generation.
 - Generate timing, utilization, DRC, methodology, power, and message reports.
@@ -117,12 +118,13 @@ AI clients should use the MCP in this order:
 6. Prefer structured workflow tools such as project, source/fileset/constraint, report, and BD tools when they cover the task.
 7. For complex source or XDC work, call `vivado_source_audit` first, then use `vivado_fileset_apply`, `vivado_constraint_set_apply`, and `vivado_xdc_order_check` before falling back to expert Tcl.
 8. For IP work, call `vivado_ip_catalog_search`, then use `vivado_create_ip`, `vivado_describe_ip`, and `vivado_generate_ip_outputs`; use `vivado_upgrade_ip(expect_upgrade=true)` only when the `.xci` mutation is intended.
-9. Call `vivado_tcl_command_help(command=...)` before unfamiliar Tcl commands; it combines official search, MCP tool coverage, and optional installed Vivado help.
-10. Call `vivado_review_tcl(tcl=...)` before expert-mode execution.
-11. Use `vivado_run_tcl` or `vivado_source_tcl` only for commands that are not yet modeled as workflow tools; set `expect_destructive=true` when the review requires it.
-12. For risky or long-running changes, call `vivado_capture_state` before/after and `vivado_state_diff`, or pass `capture_diff=true` to supported mutating tools.
-13. After every mutating action, call `vivado_project_summary`, `vivado_bd_summary`, `vivado_analyze_reports`, or `vivado_list_artifacts` to inspect the resulting state.
-14. Call `vivado_focus_gui` only when the user explicitly wants Vivado brought to the foreground.
+9. For simulation work, call `vivado_prepare_simulation`, `vivado_launch_simulation`, and `vivado_analyze_xsim_logs`; search UG900/UG835 when custom simulation Tcl is needed.
+10. Call `vivado_tcl_command_help(command=...)` before unfamiliar Tcl commands; it combines official search, MCP tool coverage, and optional installed Vivado help.
+11. Call `vivado_review_tcl(tcl=...)` before expert-mode execution.
+12. Use `vivado_run_tcl` or `vivado_source_tcl` only for commands that are not yet modeled as workflow tools; set `expect_destructive=true` when the review requires it.
+13. For risky or long-running changes, call `vivado_capture_state` before/after and `vivado_state_diff`, or pass `capture_diff=true` to supported mutating tools.
+14. After every mutating action, call `vivado_project_summary`, `vivado_bd_summary`, `vivado_analyze_reports`, or `vivado_list_artifacts` to inspect the resulting state.
+15. Call `vivado_focus_gui` only when the user explicitly wants Vivado brought to the foreground.
 
 ## First Manual Test
 
@@ -174,6 +176,9 @@ After connecting the MCP client, use this sequence:
 - `vivado_describe_ip`
 - `vivado_upgrade_ip`
 - `vivado_generate_ip_outputs`
+- `vivado_prepare_simulation`
+- `vivado_launch_simulation`
+- `vivado_analyze_xsim_logs`
 - `vivado_bd_open_or_create`
 - `vivado_bd_summary`
 - `vivado_bd_apply`
@@ -217,7 +222,7 @@ Command files, result files, logs, and reports are stored under the managed sess
 vivado://sessions/{session_ref}/artifacts/{artifact_id}
 ```
 
-Use `vivado_list_artifacts` to discover artifact URIs and `vivado_read_artifact` to read text artifacts. `vivado_report` also returns a best-effort `report_summary` for timing, utilization, DRC, methodology, power, and message reports. `vivado_analyze_reports` generates selected reports, ranks timing/utilization/DRC/power/methodology issues, and writes a JSON analysis artifact. `vivado_list_ips` and `vivado_describe_ip` return structured project IP state. `vivado_project_summary` returns the current project, source files, runs, IP, and block designs as structured data.
+Use `vivado_list_artifacts` to discover artifact URIs and `vivado_read_artifact` to read text artifacts. `vivado_report` also returns a best-effort `report_summary` for timing, utilization, DRC, methodology, power, and message reports. `vivado_analyze_reports` generates selected reports, ranks timing/utilization/DRC/power/methodology issues, and writes a JSON analysis artifact. `vivado_list_ips` and `vivado_describe_ip` return structured project IP state. `vivado_launch_simulation` returns simulation log artifact paths when Vivado reports them, and `vivado_analyze_xsim_logs` writes a JSON diagnostic artifact. `vivado_project_summary` returns the current project, source files, runs, IP, and block designs as structured data.
 
 `vivado_capture_state` writes a JSON snapshot of project, fileset, constraint, and optional block-design state. `vivado_state_diff` compares two snapshot artifacts. Supported mutating tools, including expert Tcl, source/fileset/property/top operations, BD apply/generate, and run launch helpers, accept `capture_diff=true` to return before/after snapshot artifact URIs plus a diff artifact.
 

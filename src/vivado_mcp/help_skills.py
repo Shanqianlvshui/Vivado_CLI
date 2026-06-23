@@ -156,6 +156,19 @@ def help_topic(topic: str | None = None) -> dict[str, object]:
             ],
             "related_resources": ["vivado://skills/project-build-flow", "vivado://official-docs/index"],
         }
+    if normalized in {"simulation", "sim", "xsim", "launch-simulation", "testbench", "testbench-fileset"}:
+        return {
+            "topic": "simulation_flow",
+            "summary": "Prepare simulation filesets, launch Vivado simulation, and parse xsim/xelab/xvlog logs for actionable compile/elaboration/runtime diagnostics.",
+            "recommended_tools": [
+                "vivado_prepare_simulation",
+                "vivado_launch_simulation",
+                "vivado_analyze_xsim_logs",
+                "vivado_describe_fileset",
+                "vivado_search_official_docs",
+            ],
+            "related_resources": ["vivado://skills/project-build-flow", "vivado://official-docs/index"],
+        }
     if normalized in {
         "fileset",
         "filesets",
@@ -273,6 +286,31 @@ def suggest_next_steps(
                 {"tool": "vivado_describe_ip", "why": "Inspect one IP instance's VLNV, CONFIG properties, and generated targets."},
                 {"tool": "vivado_generate_ip_outputs", "why": "Generate IP output products through a structured auditable tool."},
                 {"tool": "vivado_upgrade_ip", "why": "Upgrade IP only when .xci mutation is explicitly confirmed with expect_upgrade=true."},
+            ],
+            "related_resources": ["vivado://skills/project-build-flow", "vivado://official-docs/index"],
+        }
+    if any(
+        word in text
+        for word in (
+            "simulation",
+            "simulate",
+            "launch_simulation",
+            "xsim",
+            "xelab",
+            "xvlog",
+            "xvhdl",
+            "testbench",
+            "test bench",
+            "sim_1",
+        )
+    ):
+        return {
+            "recommendations": [
+                {"tool": "vivado_prepare_simulation", "why": "Create or update the simulation fileset with testbench files, top, include directories, defines, and library."},
+                {"tool": "vivado_launch_simulation", "why": "Launch Vivado simulation and collect structured log paths for xsim/xelab/xvlog/xvhdl outputs."},
+                {"tool": "vivado_analyze_xsim_logs", "why": "Parse simulation logs into severity counts, categories, and first actionable diagnostics."},
+                {"tool": "vivado_describe_fileset", "why": "Inspect the simulation fileset when compile order, library, or top selection looks wrong."},
+                {"tool": "vivado_search_official_docs", "why": "Use UG900/UG835/UG896 guidance for simulation modes, scripts, and IP simulation models."},
             ],
             "related_resources": ["vivado://skills/project-build-flow", "vivado://official-docs/index"],
         }

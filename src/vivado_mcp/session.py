@@ -1234,6 +1234,146 @@ class VivadoSessionManager:
             ),
         )
 
+    def prepare_simulation(
+        self,
+        *,
+        session_ref: str,
+        fileset: str = "sim_1",
+        testbench_files: list[str] | None = None,
+        top: str | None = None,
+        include_dirs: list[str] | None = None,
+        defines: list[str] | None = None,
+        library: str | None = None,
+        create_if_missing: bool = True,
+        timeout_seconds: int = 120,
+        capture_diff: bool = False,
+    ) -> dict[str, object]:
+        from .tcl import simulation_prepare_tcl
+
+        resolved_tb = [
+            self.path_policy.require_under_roots(path, label="testbench_file", must_exist=True)
+            for path in testbench_files or []
+        ]
+        include_paths = [
+            self.path_policy.require_under_roots(path, label="include_dir", must_exist=False) for path in include_dirs or []
+        ]
+        running = self._get(session_ref)
+        return self._capture_diff_around(
+            running=running,
+            label=f"prepare_simulation_{fileset}",
+            capture_diff=capture_diff,
+            timeout_seconds=timeout_seconds,
+            operation=lambda: _result_to_dict(
+                self._submit_tcl(
+                    running,
+                    simulation_prepare_tcl(
+                        fileset=fileset,
+                        testbench_files=resolved_tb,
+                        top=top,
+                        include_dirs=include_paths,
+                        defines=defines,
+                        library=library,
+                        create_if_missing=create_if_missing,
+                    ),
+                    timeout_seconds=timeout_seconds,
+                ),
+                expect_destructive=True,
+            ),
+        )
+
+    def launch_simulation(
+        self,
+        *,
+        session_ref: str,
+        fileset: str = "sim_1",
+        mode: str = "behavioral",
+        sim_type: str | None = None,
+        run_all: bool = True,
+        scripts_only: bool = False,
+        timeout_seconds: int = 1200,
+    ) -> dict[str, object]:
+        from .simulation_summary import parse_simulation_launch
+        from .tcl import simulation_launch_tcl
+
+        running = self._get(session_ref)
+        summaries_dir = running.record.session_dir / "summaries"
+        summaries_dir.mkdir(parents=True, exist_ok=True)
+        output_path = summaries_dir / f"simulation_launch_{uuid.uuid4().hex[:8]}.tsv"
+        raw_result = self._submit_tcl(
+            running,
+            simulation_launch_tcl(
+                output_path,
+                fileset=fileset,
+                mode=mode,
+                sim_type=sim_type,
+                run_all=run_all,
+                scripts_only=scripts_only,
+            ),
+            timeout_seconds=timeout_seconds,
+        )
+        result = _result_to_dict(raw_result, expect_destructive=False)
+        result["summary_path"] = str(output_path)
+        result["summary_artifact_uri"] = artifact_uri(session_ref, output_path.relative_to(running.record.session_dir).as_posix())
+        if output_path.exists():
+            result["simulation"] = parse_simulation_launch(output_path)
+        if isinstance(result.get("simulation"), dict):
+            log_paths = [
+                str(row.get("path"))
+                for row in result["simulation"].get("log_paths", [])
+                if isinstance(row, dict) and row.get("path")
+            ]
+            if log_paths:
+                try:
+                    result["log_analysis"] = self.analyze_xsim_logs(
+                        session_ref=session_ref,
+                        log_paths=log_paths,
+                        timeout_seconds=timeout_seconds,
+                    ).get("analysis")
+                except Exception as exc:
+                    result["log_analysis_error"] = str(exc)
+        return result
+
+    def analyze_xsim_logs(
+        self,
+        *,
+        session_ref: str,
+        log_paths: list[str] | None = None,
+        launch_summary_artifact: str | None = None,
+        timeout_seconds: int = 120,
+    ) -> dict[str, object]:
+        from .simulation_summary import analyze_xsim_logs, parse_simulation_launch
+
+        running = self._get(session_ref)
+        paths: list[Path] = []
+        if launch_summary_artifact:
+            relative = _artifact_relative(session_ref, launch_summary_artifact)
+            summary_path = (running.record.session_dir / relative).resolve()
+            session_root = running.record.session_dir.resolve()
+            if session_root not in [summary_path, *summary_path.parents]:
+                raise PermissionError("Simulation launch summary path escapes session directory")
+            launch = parse_simulation_launch(summary_path)
+            for row in launch.get("log_paths", []) if isinstance(launch.get("log_paths"), list) else []:
+                if isinstance(row, dict) and row.get("path"):
+                    paths.append(self.path_policy.require_under_roots(str(row["path"]), label="xsim_log", must_exist=True))
+        for path in log_paths or []:
+            paths.append(self.path_policy.require_under_roots(path, label="xsim_log", must_exist=True))
+        if not paths:
+            raise ValueError("log_paths or launch_summary_artifact must identify at least one log")
+
+        analyses_dir = running.record.session_dir / "analyses"
+        analyses_dir.mkdir(parents=True, exist_ok=True)
+        analysis = analyze_xsim_logs(paths)
+        output_path = analyses_dir / f"xsim_log_analysis_{uuid.uuid4().hex[:8]}.json"
+        output_path.write_text(json.dumps(analysis, indent=2, sort_keys=True), encoding="utf-8")
+        return {
+            "ok": True,
+            "session_ref": session_ref,
+            "analysis": analysis,
+            "analysis_path": str(output_path),
+            "analysis_artifact_uri": artifact_uri(session_ref, output_path.relative_to(running.record.session_dir).as_posix()),
+            "timeout_seconds": timeout_seconds,
+        }
+
     def project_summary(self, *, session_ref: str, timeout_seconds: int = 60) -> dict[str, object]:
         from .project_summary import parse_project_summary
         from .tcl import project_summary_tcl

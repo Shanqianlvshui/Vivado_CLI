@@ -685,6 +685,118 @@ def ip_support_procs_tcl() -> str:
     )
 
 
+# ---------------------------------------------------------------------------
+# Simulation helpers
+# ---------------------------------------------------------------------------
+
+
+def simulation_prepare_tcl(
+    *,
+    fileset: str,
+    testbench_files: list[Path] | None = None,
+    top: str | None = None,
+    include_dirs: list[Path] | None = None,
+    defines: list[str] | None = None,
+    library: str | None = None,
+    create_if_missing: bool = True,
+) -> str:
+    if not fileset.strip():
+        raise ValueError("simulation_prepare_tcl requires fileset")
+    lines = [
+        f"set mcp_sim_fs [get_filesets -quiet {quote_tcl(fileset)}]",
+        "if {[llength $mcp_sim_fs] == 0} {",
+    ]
+    if create_if_missing:
+        lines.append(f"  set mcp_sim_fs [create_fileset -type {quote_tcl('simulation')} {quote_tcl(fileset)}]")
+    else:
+        lines.append(f"  error [format {{Simulation fileset not found: %s}} {quote_tcl(fileset)}]")
+    lines.extend(["}", "set mcp_sim_fs [get_filesets $mcp_sim_fs]"])
+    if testbench_files:
+        lines.append(f"add_files -fileset {quote_tcl(fileset)} [list {tcl_list(testbench_files)}]")
+        file_properties: dict[str, Any] = {"IS_ENABLED_SIMULATION": 1, "IS_ENABLED_SYNTHESIS": 0}
+        if library is not None:
+            file_properties["LIBRARY"] = library
+        lines.append(
+            f"set_property -dict [list {_property_list(file_properties)}] [get_files [list {tcl_list(testbench_files)}] -of [get_filesets {quote_tcl(fileset)}]]"
+        )
+    if include_dirs is not None:
+        lines.append(f"set_property INCLUDE_DIRS [list {tcl_list(include_dirs)}] [get_filesets {quote_tcl(fileset)}]")
+    if defines:
+        lines.append(f"set_property -dict [list {_property_list({f'DEFINE.{name}': '' for name in defines})}] [get_filesets {quote_tcl(fileset)}]")
+    if top:
+        lines.append(f"set_property TOP {quote_tcl(top)} [get_filesets {quote_tcl(fileset)}]")
+    lines.append(f"update_compile_order -fileset {quote_tcl(fileset)}")
+    lines.extend([f"set mcp_sim_name {quote_tcl(fileset)}", 'return "simulation_prepared=$mcp_sim_name"'])
+    return "\n".join(lines)
+
+
+def simulation_launch_tcl(
+    output_path: Path,
+    *,
+    fileset: str = "sim_1",
+    mode: str = "behavioral",
+    sim_type: str | None = None,
+    run_all: bool = True,
+    scripts_only: bool = False,
+) -> str:
+    if not fileset.strip():
+        raise ValueError("simulation_launch_tcl requires fileset")
+    if not mode.strip():
+        raise ValueError("simulation_launch_tcl requires mode")
+    normalized_mode = mode.strip()
+    normalized_type = sim_type.strip() if sim_type else None
+    if normalized_mode == "behavioral" and normalized_type:
+        raise ValueError("simulation_launch_tcl cannot use sim_type with behavioral mode")
+    if normalized_mode in {"post-synthesis", "post-implementation"} and not normalized_type:
+        raise ValueError("simulation_launch_tcl requires sim_type for post-synthesis/post-implementation mode")
+    out = quote_tcl(output_path)
+    out_string = str(output_path).replace("\\", "/")
+    args = [
+        f"-simset {quote_tcl(fileset)}",
+        f"-mode {quote_tcl(normalized_mode)}",
+    ]
+    if normalized_type:
+        args.append(f"-type {quote_tcl(normalized_type)}")
+    if scripts_only:
+        args.append("-scripts_only")
+    lines = [
+        f"set mcp_sim_launch_file {out}",
+        "set f [open $mcp_sim_launch_file w]",
+        "proc mcp_put {f args} { puts $f [join $args \"\\t\"] }",
+        f"set mcp_simset [get_filesets -quiet {quote_tcl(fileset)}]",
+        "if {[llength $mcp_simset] == 0} {",
+        f"  mcp_put $f error simulation_fileset_not_found {quote_tcl(fileset)}",
+        "  close $f",
+        f"  return \"simulation_launch={out_string}\"",
+        "}",
+        f"launch_simulation {' '.join(args)}",
+    ]
+    if run_all and not scripts_only:
+        lines.append("catch { run all }")
+    lines.extend(
+        [
+            f"mcp_put $f simulation {quote_tcl(fileset)} {quote_tcl(normalized_mode)} {quote_tcl(normalized_type or '')} {1 if scripts_only else 0}",
+            "foreach item {xsim.log xelab.log xvlog.log xvhdl.log simulate.log webtalk.log} {",
+            "  set path [file normalize $item]",
+            "  if {[file exists $path]} { mcp_put $f log $item $path }",
+            "}",
+            "set mcp_sim_dir \"\"",
+            "catch { set mcp_sim_dir [get_property DIRECTORY [current_project]] }",
+            "if {$mcp_sim_dir ne \"\"} {",
+            "  foreach path [glob -nocomplain -directory $mcp_sim_dir -types f *.log] {",
+            "    mcp_put $f log [file tail $path] [file normalize $path]",
+            "  }",
+            "  foreach pattern [list [file join $mcp_sim_dir *.sim * * *.log] [file join $mcp_sim_dir *.sim * * * *.log]] {",
+            "    foreach path [glob -nocomplain $pattern] { mcp_put $f log [file tail $path] [file normalize $path] }",
+            "  }",
+            "}",
+            "close $f",
+            f"return \"simulation_launch={out_string}\"",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def project_summary_tcl(output_path: Path) -> str:
     out = quote_tcl(output_path)
     out_string = str(output_path).replace("\\", "/")

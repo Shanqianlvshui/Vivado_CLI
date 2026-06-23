@@ -12,11 +12,12 @@ Use this for ordinary Project Mode FPGA work: create/open a project, add files, 
 6. For non-trivial changes, call `vivado_capture_state` first or pass `capture_diff=true` to the mutating tool.
 7. Call `vivado_add_sources`, `vivado_fileset_apply`, or `vivado_constraint_set_apply` as appropriate.
 8. For project IP, use `vivado_ip_catalog_search`, `vivado_create_ip`, `vivado_describe_ip`, and `vivado_generate_ip_outputs`.
-9. Call `vivado_xdc_order_check` before synthesis when constraints changed.
-10. Call `vivado_run_synthesis`.
-11. If synthesis succeeds, call `vivado_run_implementation`.
-12. Call `vivado_analyze_reports` for timing, utilization, DRC, methodology, and power diagnostics.
-13. Use targeted `vivado_report` calls after the aggregate analysis identifies a failure area.
+9. For testbench work, use `vivado_prepare_simulation`, `vivado_launch_simulation`, and `vivado_analyze_xsim_logs`.
+10. Call `vivado_xdc_order_check` before synthesis when constraints changed.
+11. Call `vivado_run_synthesis`.
+12. If synthesis succeeds, call `vivado_run_implementation`.
+13. Call `vivado_analyze_reports` for timing, utilization, DRC, methodology, and power diagnostics.
+14. Use targeted `vivado_report` calls after the aggregate analysis identifies a failure area.
 
 ## Notes For AI
 
@@ -24,3 +25,4 @@ Use this for ordinary Project Mode FPGA work: create/open a project, add files, 
 - Use `capture_diff=true` on source/fileset/top/property/run operations when you need a before/after audit trail.
 - Link raw logs and reports as resources instead of pasting entire logs.
 - If a run fails, inspect `vivado_analyze_reports` issues before retrying.
+- If simulation fails, inspect `vivado_analyze_xsim_logs` before changing RTL or IP.

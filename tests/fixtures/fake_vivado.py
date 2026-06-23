@@ -104,6 +104,35 @@ def _result_for(body: str) -> str:
         return "bd_generated=C:/fake/design_1.bd wrapper=C:/fake/design_1_wrapper.v"
     if "create_bd_design" in body or "open_bd_design" in body:
         return "bd_design=design_1"
+    sim_launch_match = re.search(r"set mcp_sim_launch_file \{([^}]+)\}", body)
+    if sim_launch_match:
+        path = Path(sim_launch_match.group(1))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        log_path = path.parent.parent / "xsim.log"
+        log_path.write_text(
+            "\n".join(
+                [
+                    "INFO: [XSIM 43-1] fake simulation started",
+                    "WARNING: [VRFC 10-123] timescale missing",
+                    "ERROR: [VRFC 10-2063] Module <dut> not found",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        path.write_text(
+            "\n".join(
+                [
+                    "simulation\tsim_1\tbehavioral\t\t0",
+                    f"log\txsim.log\t{log_path}",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        return f"simulation_launch={path}"
+    if "simulation_prepared=" in body or "create_fileset -type {simulation}" in body:
+        return "simulation_prepared=sim_1"
     if "launch_runs" in body:
         return "status=complete"
     summary_match = re.search(r"set mcp_summary_file \{([^}]+)\}", body)

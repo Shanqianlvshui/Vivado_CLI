@@ -220,6 +220,44 @@ def test_ip_workflow_returns_structured_state(tmp_path: Path) -> None:
     manager.stop_session(session_ref, timeout_seconds=5)
 
 
+def test_simulation_workflow_prepares_launches_and_analyzes_logs(tmp_path: Path) -> None:
+    wrapper = _make_fake_wrapper(tmp_path)
+    tb = tmp_path / "tb_top.sv"
+    tb.write_text("module tb_top; endmodule\n", encoding="utf-8")
+    manager = VivadoSessionManager(default_workspace=tmp_path)
+    started = manager.start_session(vivado_path=str(wrapper), open_gui=False)
+    session_ref = str(started["session_ref"])
+
+    prepared = manager.prepare_simulation(
+        session_ref=session_ref,
+        fileset="sim_1",
+        testbench_files=[str(tb)],
+        top="tb_top",
+        defines=["SIM=1"],
+        timeout_seconds=5,
+        capture_diff=True,
+    )
+    assert prepared["ok"] is True
+    assert prepared["result"] == "simulation_prepared=sim_1"
+    assert prepared["state_diff"]["ok"] is True
+
+    launched = manager.launch_simulation(session_ref=session_ref, fileset="sim_1", timeout_seconds=5)
+    assert launched["ok"] is True
+    assert launched["simulation"]["simset"] == "sim_1"
+    assert launched["log_analysis"]["ok"] is False
+    assert launched["log_analysis"]["counts"]["error"] == 1
+
+    analyzed = manager.analyze_xsim_logs(
+        session_ref=session_ref,
+        launch_summary_artifact=str(launched["summary_artifact_uri"]),
+        timeout_seconds=5,
+    )
+    assert analyzed["analysis"]["worst_severity"] == "error"
+    assert analyzed["analysis"]["issues"][0]["path"].endswith("xsim.log")
+
+    manager.stop_session(session_ref, timeout_seconds=5)
+
+
 def test_state_capture_and_diff_writes_artifacts(tmp_path: Path) -> None:
     wrapper = _make_fake_wrapper(tmp_path)
     manager = VivadoSessionManager(default_workspace=tmp_path)

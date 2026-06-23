@@ -122,6 +122,7 @@ COMMAND_DOC_TOPICS: dict[str, str] = {
     "generate_target": "bd",
     "get_files": "project",
     "get_runs": "build",
+    "launch_simulation": "simulation",
     "launch_runs": "build",
     "make_wrapper": "bd",
     "open_bd_design": "bd",
@@ -227,6 +228,12 @@ COMMAND_COVERAGE: dict[str, dict[str, object]] = {
         "coverage_status": "partial",
         "recommended_tools": ["vivado_run_synthesis", "vivado_run_implementation", "vivado_generate_bitstream"],
         "notes": "Build tools cover standard synth/impl/bitstream runs. Use Tcl for custom run names, steps, strategies, or non-project flows.",
+    },
+    "launch_simulation": {
+        "coverage_status": "covered",
+        "recommended_tools": ["vivado_prepare_simulation", "vivado_launch_simulation", "vivado_analyze_xsim_logs"],
+        "recommendation": "prefer_structured_tool",
+        "notes": "Use structured simulation tools so the simulation fileset, mode, generated logs, and parsed diagnostics are captured.",
     },
     "create_clock": {
         "coverage_status": "raw_tcl",

@@ -600,6 +600,76 @@ def vivado_analyze_reports(
 
 
 @mcp.tool()
+def vivado_prepare_simulation(
+    session_ref: str,
+    fileset: str = "sim_1",
+    testbench_files: list[str] | None = None,
+    top: str | None = None,
+    include_dirs: list[str] | None = None,
+    defines: list[str] | None = None,
+    library: str | None = None,
+    create_if_missing: bool = True,
+    timeout_seconds: int = 120,
+    capture_diff: bool = False,
+) -> dict[str, object]:
+    """Create/update a simulation fileset with testbench files, top, includes, defines, and library."""
+    return manager.prepare_simulation(
+        session_ref=session_ref,
+        fileset=fileset,
+        testbench_files=testbench_files,
+        top=top,
+        include_dirs=include_dirs,
+        defines=defines,
+        library=library,
+        create_if_missing=create_if_missing,
+        timeout_seconds=timeout_seconds,
+        capture_diff=capture_diff,
+    )
+
+
+@mcp.tool()
+def vivado_launch_simulation(
+    session_ref: str,
+    fileset: str = "sim_1",
+    mode: Literal["behavioral", "post-synthesis", "post-implementation"] = "behavioral",
+    sim_type: Literal["functional", "timing"] | None = None,
+    run_all: bool = True,
+    scripts_only: bool = False,
+    timeout_seconds: int = 1200,
+) -> dict[str, object]:
+    """Launch Vivado simulation and return structured launch/log information.
+
+    Use mode="behavioral" without sim_type, or mode="post-synthesis"/"post-implementation"
+    with sim_type="functional" or "timing".
+    """
+    return manager.launch_simulation(
+        session_ref=session_ref,
+        fileset=fileset,
+        mode=mode,
+        sim_type=sim_type,
+        run_all=run_all,
+        scripts_only=scripts_only,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+@mcp.tool()
+def vivado_analyze_xsim_logs(
+    session_ref: str,
+    log_paths: list[str] | None = None,
+    launch_summary_artifact: str | None = None,
+    timeout_seconds: int = 120,
+) -> dict[str, object]:
+    """Parse xsim/xelab/xvlog/xvhdl logs and return severity/category diagnostics."""
+    return manager.analyze_xsim_logs(
+        session_ref=session_ref,
+        log_paths=log_paths,
+        launch_summary_artifact=launch_summary_artifact,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+@mcp.tool()
 def vivado_ip_catalog_search(
     session_ref: str,
     query: str | None = None,

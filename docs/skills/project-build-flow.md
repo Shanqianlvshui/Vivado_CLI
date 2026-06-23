@@ -18,14 +18,15 @@ Use this for ordinary Project Mode FPGA work: create/open a project, add files, 
 6. For non-trivial changes, call `vivado_capture_state` first or pass `capture_diff=true` to the mutating tool.
 7. Call `vivado_add_sources` for RTL and XDC files. Use the `sources_fileset`, `include_dirs`, `defines`, `library`, `file_type`, `used_in`, and `processing_order` parameters when the project is not the default `sources_1`.
 8. For project IP, call `vivado_ip_catalog_search`, `vivado_create_ip`, `vivado_describe_ip`, and `vivado_generate_ip_outputs`. Use `vivado_upgrade_ip(expect_upgrade=true)` only when the `.xci` mutation is intended.
-9. Call `vivado_set_top` (with `top=None` to read, or pass a value to set) to confirm or change the top module.
-10. Call `vivado_set_file_properties` for files that need explicit LIBRARY / PROCESSING_ORDER / USED_IN overrides.
-11. Call `vivado_xdc_order_check` and `vivado_constraint_diagnostics` to audit XDC fileset ordering, USED_IN scopes, and UG903/UG949 methodology markers before synthesis on non-trivial projects.
-12. Call `vivado_run_synthesis`.
-13. If synthesis succeeds, call `vivado_run_implementation`.
-14. Call `vivado_analyze_reports` for `timing_summary`, `utilization`, `drc`, `power`, and `methodology`.
-15. Use targeted `vivado_report` calls only after the aggregate analysis points at the next failure area.
-16. Summarize WNS/TNS, utilization pressure, DRC/methodology rule IDs, power totals, and the first actionable errors.
+9. For testbench work, call `vivado_prepare_simulation`, `vivado_launch_simulation`, and `vivado_analyze_xsim_logs` before changing RTL or IP based on a simulator failure.
+10. Call `vivado_set_top` (with `top=None` to read, or pass a value to set) to confirm or change the top module.
+11. Call `vivado_set_file_properties` for files that need explicit LIBRARY / PROCESSING_ORDER / USED_IN overrides.
+12. Call `vivado_xdc_order_check` and `vivado_constraint_diagnostics` to audit XDC fileset ordering, USED_IN scopes, and UG903/UG949 methodology markers before synthesis on non-trivial projects.
+13. Call `vivado_run_synthesis`.
+14. If synthesis succeeds, call `vivado_run_implementation`.
+15. Call `vivado_analyze_reports` for `timing_summary`, `utilization`, `drc`, `power`, and `methodology`.
+16. Use targeted `vivado_report` calls only after the aggregate analysis points at the next failure area.
+17. Summarize WNS/TNS, utilization pressure, DRC/methodology rule IDs, power totals, and the first actionable errors.
 
 ## Notes For AI
 
@@ -41,4 +42,5 @@ Use this for ordinary Project Mode FPGA work: create/open a project, add files, 
 - `source_file_missing`: verify resolved paths and workspace roots.
 - `license_error`: inspect the Vivado log before changing project files.
 - `ip_locked_or_stale`: call `vivado_describe_ip`, then upgrade only through `vivado_upgrade_ip(expect_upgrade=true)`.
+- `simulation_compile_or_elaboration_failed`: call `vivado_analyze_xsim_logs`, then inspect the simulation fileset with `vivado_describe_fileset`.
 - `timing_failed`: call `vivado_analyze_reports`, then generate timing paths for the worst setup or hold failure.

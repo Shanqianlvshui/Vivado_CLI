@@ -39,6 +39,11 @@ def test_help_topic_points_to_skill() -> None:
     assert "vivado_create_ip" in ip_help["recommended_tools"]
     assert "vivado_upgrade_ip" in ip_help["recommended_tools"]
 
+    sim_help = help_topic("simulation")
+    assert "vivado_prepare_simulation" in sim_help["recommended_tools"]
+    assert "vivado_launch_simulation" in sim_help["recommended_tools"]
+    assert "vivado_analyze_xsim_logs" in sim_help["recommended_tools"]
+
     docs_help = help_topic("official_docs")
     assert "vivado_list_official_references" in docs_help["recommended_tools"]
     assert "vivado_search_official_docs" in docs_help["recommended_tools"]
@@ -93,6 +98,14 @@ def test_suggest_next_steps_routes_ip_work() -> None:
     assert tools[0] == "vivado_ip_catalog_search"
     assert "vivado_create_ip" in tools
     assert "vivado_generate_ip_outputs" in tools
+
+
+def test_suggest_next_steps_routes_simulation_work() -> None:
+    result = suggest_next_steps(goal="launch_simulation fails in xelab for testbench sim_1", has_session=True, has_project=True)
+    tools = [row["tool"] for row in result["recommendations"]]
+
+    assert tools[:3] == ["vivado_prepare_simulation", "vivado_launch_simulation", "vivado_analyze_xsim_logs"]
+    assert "vivado_search_official_docs" in tools
 
 
 def test_skills_index_contains_resource_uris() -> None:

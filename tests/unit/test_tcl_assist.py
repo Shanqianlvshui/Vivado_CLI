@@ -74,6 +74,15 @@ def test_command_coverage_for_priority_cross_flow_commands() -> None:
     assert "vivado_run_synthesis" in launch_runs["recommended_tools"]
     assert tcl_command_doc_topic("launch_runs") == "build"
 
+    launch_simulation = tcl_command_coverage("launch_simulation")
+    assert launch_simulation["coverage_status"] == "covered"
+    assert launch_simulation["recommended_tools"] == [
+        "vivado_prepare_simulation",
+        "vivado_launch_simulation",
+        "vivado_analyze_xsim_logs",
+    ]
+    assert tcl_command_doc_topic("launch_simulation") == "simulation"
+
     create_ip = tcl_command_coverage("create_ip")
     assert create_ip["coverage_status"] == "covered"
     assert create_ip["recommended_tools"] == ["vivado_create_ip", "vivado_ip_catalog_search"]

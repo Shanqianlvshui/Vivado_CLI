@@ -17,6 +17,8 @@ from vivado_mcp.tcl import (
     ip_upgrade_tcl,
     quote_tcl,
     report_tcl,
+    simulation_launch_tcl,
+    simulation_prepare_tcl,
 )
 
 
@@ -147,3 +149,36 @@ def test_ip_tcl_helpers_cover_catalog_create_describe_and_outputs() -> None:
     generated = ip_generate_outputs_tcl(name="axi_gpio_0", targets=["all", "synthesis"])
     assert "generate_target {all} [get_ips {axi_gpio_0}]" in generated
     assert "generate_target {synthesis} [get_ips {axi_gpio_0}]" in generated
+
+
+def test_simulation_tcl_helpers_prepare_and_launch() -> None:
+    prepared = simulation_prepare_tcl(
+        fileset="sim_1",
+        testbench_files=[Path("C:/demo/tb_top.sv")],
+        top="tb_top",
+        include_dirs=[Path("C:/demo/tb/include")],
+        defines=["SIM=1"],
+        library="xil_defaultlib",
+    )
+
+    assert "create_fileset -type {simulation} {sim_1}" in prepared
+    assert "add_files -fileset {sim_1} [list {C:/demo/tb_top.sv}]" in prepared
+    assert "{IS_ENABLED_SIMULATION} {1} {IS_ENABLED_SYNTHESIS} {0}" in prepared
+    assert "set_property TOP {tb_top} [get_filesets {sim_1}]" in prepared
+    assert "update_compile_order -fileset {sim_1}" in prepared
+
+    launched = simulation_launch_tcl(
+        Path("sim.tsv"),
+        fileset="sim_1",
+        mode="post-synthesis",
+        sim_type="functional",
+        scripts_only=True,
+    )
+    assert "launch_simulation -simset {sim_1} -mode {post-synthesis} -type {functional} -scripts_only" in launched
+    assert "run all" not in launched
+    assert "mcp_put $f simulation {sim_1} {post-synthesis} {functional} 1" in launched
+
+    with pytest.raises(ValueError):
+        simulation_launch_tcl(Path("sim.tsv"), fileset="sim_1", mode="behavioral", sim_type="timing")
+    with pytest.raises(ValueError):
+        simulation_launch_tcl(Path("sim.tsv"), fileset="sim_1", mode="post-implementation")
