@@ -8,6 +8,14 @@ from mcp.server.fastmcp import FastMCP
 
 from . import __version__
 from .help_skills import get_skill, help_topic, list_skills, skills_index, suggest_next_steps
+from .official_docs import (
+    get_official_reference,
+    list_official_references,
+    local_docs_root,
+    official_doc_resource,
+    official_docs_index,
+    official_reference_guide,
+)
 from .session import VivadoSessionManager
 from .vivado_locator import check_vivado
 
@@ -375,6 +383,24 @@ def vivado_suggest_next_steps(
     )
 
 
+@mcp.tool()
+def vivado_list_official_references(query: str | None = None, topic: str | None = None) -> dict[str, object]:
+    """List packaged AMD official Vivado documentation references by keyword or topic."""
+    return {"references": list_official_references(query=query, topic=topic)}
+
+
+@mcp.tool()
+def vivado_get_official_reference(doc_id: str) -> dict[str, object]:
+    """Return one packaged AMD official Vivado documentation reference."""
+    return get_official_reference(doc_id)
+
+
+@mcp.tool()
+def vivado_official_reference_guide(topic: str | None = None) -> dict[str, object]:
+    """Return AI guidance for which AMD official Vivado references apply to a topic."""
+    return official_reference_guide(topic)
+
+
 @mcp.resource("vivado://help/index", mime_type="text/markdown")
 def help_index() -> str:
     """Vivado MCP help index."""
@@ -389,6 +415,18 @@ def help_index() -> str:
         "## Related Resources\n\n"
         f"{resources}\n"
     )
+
+
+@mcp.resource("vivado://official-docs/index", mime_type="text/markdown")
+def resource_official_docs_index() -> str:
+    """AMD official Vivado documentation reference index."""
+    return official_docs_index()
+
+
+@mcp.resource("vivado://official-docs/{doc_id}", mime_type="text/markdown")
+def resource_official_doc(doc_id: str) -> str:
+    """One AMD official Vivado documentation reference."""
+    return official_doc_resource(doc_id)
 
 
 @mcp.resource("vivado://skills/index", mime_type="text/markdown")
@@ -417,6 +455,7 @@ def server_info() -> dict[str, object]:
         "version": __version__,
         "default_workspace": str(manager.default_workspace),
         "allowed_roots": [str(root) for root in manager.path_policy.roots],
+        "official_docs_root": local_docs_root(),
     }
 
 

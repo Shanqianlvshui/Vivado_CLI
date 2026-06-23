@@ -36,6 +36,12 @@ SKILLS: tuple[Skill, ...] = (
         filename="block-design-flow.md",
     ),
     Skill(
+        skill_id="official-docs-reference",
+        title="Official Docs Reference",
+        summary="Use packaged AMD official Vivado documentation metadata as the authority layer for AI guidance.",
+        filename="official-docs-reference.md",
+    ),
+    Skill(
         skill_id="raw-tcl-expert",
         title="Raw Tcl Expert Mode",
         summary="Use trusted-local raw Tcl for full Vivado freedom with command/result artifacts.",
@@ -124,6 +130,17 @@ def help_topic(topic: str | None = None) -> dict[str, object]:
             "recommended_tools": ["vivado_session_state", "vivado_run_tcl", "vivado_source_tcl"],
             "related_resources": ["vivado://skills/raw-tcl-expert"],
         }
+    if normalized in {"official-docs", "official-docs-reference", "official-docs-index", "official-docs-guide", "official-docs-catalog", "official-docs-catalogue", "official", "reference", "docs", "manuals"}:
+        return {
+            "topic": "official_docs",
+            "summary": "Use the packaged AMD official Vivado documentation catalog and topic guides before designing Tcl or workflow-level MCP actions.",
+            "recommended_tools": [
+                "vivado_official_reference_guide",
+                "vivado_list_official_references",
+                "vivado_get_official_reference",
+            ],
+            "related_resources": ["vivado://official-docs/index", "vivado://skills/official-docs-reference"],
+        }
     return {
         "topic": normalized,
         "summary": "Unknown help topic. Use `vivado_list_skills` to discover available tutorials.",
@@ -140,6 +157,14 @@ def suggest_next_steps(
     has_project: bool = False,
 ) -> dict[str, object]:
     text = f"{goal or ''} {last_error or ''}".lower()
+    if any(word in text for word in ("official", "manual", "docs", "documentation", "ug835", "ug894", "reference")):
+        return {
+            "recommendations": [
+                {"tool": "vivado_official_reference_guide", "why": "Choose the official AMD documents that apply to the requested Vivado task."},
+                {"tool": "vivado_list_official_references", "why": "Search the packaged official-document catalog by topic or keyword."},
+            ],
+            "related_resources": ["vivado://official-docs/index", "vivado://skills/official-docs-reference"],
+        }
     if "tcl" in text:
         return {
             "recommendations": [

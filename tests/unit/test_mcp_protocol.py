@@ -27,6 +27,9 @@ async def test_mcp_server_lists_core_tools() -> None:
                 "vivado_list_sessions",
                 "vivado_read_artifact",
                 "vivado_help",
+                "vivado_list_official_references",
+                "vivado_get_official_reference",
+                "vivado_official_reference_guide",
             }.issubset(tool_names)
 
 
@@ -39,5 +42,9 @@ async def test_mcp_server_reads_skill_resource() -> None:
             resources = await session.list_resources()
             resource_uris = {str(resource.uri) for resource in resources.resources}
             assert "vivado://skills/index" in resource_uris
+            assert "vivado://official-docs/index" in resource_uris
             result = await session.read_resource("vivado://skills/index")
             assert "raw-tcl-expert" in result.contents[0].text
+
+            docs_result = await session.read_resource("vivado://official-docs/index")
+            assert "UG835" in docs_result.contents[0].text

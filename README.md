@@ -27,6 +27,7 @@ Current design documents:
 - Parse common report outputs into compact structured summaries.
 - Expose logs and generated reports as MCP resources.
 - Provide built-in help/skills so AI clients can learn the intended Vivado workflows before acting.
+- Package AMD official Vivado documentation metadata and topic guidance as the authority layer for help and expert Tcl planning.
 
 ## Capability profiles
 
@@ -44,9 +45,15 @@ The MCP should expose tutorial content through both tools and resources:
 - `vivado_list_skills`
 - `vivado_get_skill`
 - `vivado_suggest_next_steps`
+- `vivado_official_reference_guide`
+- `vivado_list_official_references`
+- `vivado_get_official_reference`
 - `vivado://skills/index`
+- `vivado://official-docs/index`
 
 Seed skill docs live in [docs/skills](docs/skills).
+
+The official reference layer stores document IDs, AMD URLs, scope summaries, topic routing, and local filename candidates. It does not copy the full AMD document text into this repository.
 
 ## Install For Local Use
 
@@ -75,14 +82,27 @@ Use the installed console script as the MCP server command:
       "env": {
         "VIVADO_BIN": "C:\\Xilinx\\Vivado\\2023.1\\bin\\vivado.bat",
         "VIVADO_MCP_WORKSPACE": "C:\\Workspace\\Vivado_mcp",
-        "VIVADO_MCP_ALLOWED_ROOTS": "C:\\Workspace\\Vivado_mcp"
+        "VIVADO_MCP_ALLOWED_ROOTS": "C:\\Workspace\\Vivado_mcp",
+        "VIVADO_MCP_DOCS_ROOT": "C:\\Database\\FPGA\\Vivado_docs"
       }
     }
   }
 }
 ```
 
-`VIVADO_MCP_WORKSPACE` is the default working directory for managed sessions. `VIVADO_MCP_ALLOWED_ROOTS` is a semicolon-separated list on Windows; workflow paths such as projects, sources, constraints, and Tcl files in `trusted-local` mode must stay under one of these roots. Use `unrestricted` capability profile only for personal experiments that need to source Tcl outside the allowed roots.
+`VIVADO_MCP_WORKSPACE` is the default working directory for managed sessions. `VIVADO_MCP_ALLOWED_ROOTS` is a semicolon-separated list on Windows; workflow paths such as projects, sources, constraints, and Tcl files in `trusted-local` mode must stay under one of these roots. `VIVADO_MCP_DOCS_ROOT` points to the local AMD Vivado documentation library used by the official-reference index; it defaults to `C:\Database\FPGA\Vivado_docs`. Use `unrestricted` capability profile only for personal experiments that need to source Tcl outside the allowed roots.
+
+## AI Operating Flow
+
+AI clients should use the MCP in this order:
+
+1. Call `vivado_help(topic="official_docs")` or read `vivado://skills/official-docs-reference` before planning unfamiliar Vivado actions.
+2. Call `vivado_official_reference_guide(topic=...)` to select the authoritative AMD manuals for the task.
+3. Call `vivado_get_official_reference(doc_id=...)` for the exact official URL and local PDF candidates under `C:\Database\FPGA\Vivado_docs`.
+4. Prefer structured workflow tools such as project, report, and BD tools when they cover the task.
+5. Use `vivado_run_tcl` or `vivado_source_tcl` only for commands that are not yet modeled as workflow tools.
+6. After every mutating action, call `vivado_project_summary`, `vivado_bd_summary`, `vivado_report`, or `vivado_list_artifacts` to inspect the resulting state.
+7. Call `vivado_focus_gui` only when the user explicitly wants Vivado brought to the foreground.
 
 ## First Manual Test
 
@@ -92,10 +112,11 @@ After connecting the MCP client, use this sequence:
 2. `vivado_check_installation`.
 3. `vivado_start_session` with `open_gui=true`, then confirm `gui.visible=true`.
 4. `vivado_focus_gui` only if the user asks to bring the Vivado window forward.
-5. `vivado_run_tcl` with `tcl="return \"version=[version -short]\""`.
-6. `vivado_project_summary` after opening or creating a project.
-7. `vivado_list_artifacts` to inspect command/result files.
-8. `vivado_stop_session`.
+5. `vivado_official_reference_guide` with `topic="tcl"` or the relevant task topic before expert Tcl work.
+6. `vivado_run_tcl` with `tcl="return \"version=[version -short]\""`.
+7. `vivado_project_summary` after opening or creating a project.
+8. `vivado_list_artifacts` to inspect command/result files.
+9. `vivado_stop_session`.
 
 ## Implemented Tools
 
@@ -126,6 +147,9 @@ After connecting the MCP client, use this sequence:
 - `vivado_list_skills`
 - `vivado_get_skill`
 - `vivado_suggest_next_steps`
+- `vivado_list_official_references`
+- `vivado_get_official_reference`
+- `vivado_official_reference_guide`
 
 ## Development Checks
 
@@ -145,6 +169,17 @@ vivado://sessions/{session_ref}/artifacts/{artifact_id}
 ```
 
 Use `vivado_list_artifacts` to discover artifact URIs and `vivado_read_artifact` to read text artifacts. `vivado_report` also returns a best-effort `report_summary` for timing, utilization, DRC, and message reports. `vivado_project_summary` returns the current project, source files, runs, IP, and block designs as structured data.
+
+## Official Reference Resources
+
+The help system exposes official-reference metadata through these resources:
+
+```text
+vivado://official-docs/index
+vivado://official-docs/{doc_id}
+```
+
+Use `vivado_official_reference_guide(topic=...)` for AI routing. Current topics include `tcl`, `project`, `bd`, `ip`, `constraints`, `build`, `simulation`, `reports`, `hardware`, `dfx`, `methodology`, `io`, `installation`, `migration`, `libraries`, and `embedded`.
 
 ## Explicitly out of scope for the first version
 
