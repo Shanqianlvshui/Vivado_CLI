@@ -86,6 +86,11 @@ def test_help_topic_points_to_skill() -> None:
     assert "vivado_analyze_reports" in report_help["recommended_tools"]
     assert "vivado://official-docs/index" in report_help["related_resources"]
 
+    recovery_help = help_topic("recovery")
+    assert "vivado_recovery_brief" in recovery_help["recommended_tools"]
+    assert "vivado_session_timeline" in recovery_help["recommended_tools"]
+    assert "vivado_list_artifacts" in recovery_help["recommended_tools"]
+
 
 def test_suggest_next_steps_routes_fileset_and_constraint_work() -> None:
     result = suggest_next_steps(goal="fix XDC order and set top/include dirs", has_session=True, has_project=True)

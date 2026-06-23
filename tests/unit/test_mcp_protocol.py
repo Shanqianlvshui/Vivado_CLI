@@ -25,6 +25,8 @@ async def test_mcp_server_lists_core_tools() -> None:
                 "vivado_project_summary",
                 "vivado_capture_state",
                 "vivado_state_diff",
+                "vivado_session_timeline",
+                "vivado_recovery_brief",
                 "vivado_analyze_reports",
                 "vivado_hw_discover",
                 "vivado_nonproject_audit",

@@ -127,8 +127,9 @@ AI clients should use the MCP in this order:
 13. Call `vivado_review_tcl(tcl=...)` before expert-mode execution.
 14. Use `vivado_run_tcl` or `vivado_source_tcl` only for commands that are not yet modeled as workflow tools; set `expect_destructive=true` when the review requires it.
 15. For risky or long-running changes, call `vivado_capture_state` before/after and `vivado_state_diff`, or pass `capture_diff=true` to supported mutating tools.
-16. After every mutating action, call `vivado_project_summary`, `vivado_bd_summary`, `vivado_analyze_reports`, or `vivado_list_artifacts` to inspect the resulting state.
-17. Call `vivado_focus_gui` only when the user explicitly wants Vivado brought to the foreground.
+16. For resumed or long-running sessions, call `vivado_recovery_brief` first, then inspect `vivado_session_timeline` or filtered `vivado_list_artifacts` when more artifact detail is needed.
+17. After every mutating action, call `vivado_project_summary`, `vivado_bd_summary`, `vivado_analyze_reports`, `vivado_recovery_brief`, or `vivado_list_artifacts` to inspect the resulting state.
+18. Call `vivado_focus_gui` only when the user explicitly wants Vivado brought to the foreground.
 
 ## First Manual Test
 
@@ -205,6 +206,8 @@ After connecting the MCP client, use this sequence:
 - `vivado_hw_discover`
 - `vivado_project_summary`
 - `vivado_list_artifacts`
+- `vivado_session_timeline`
+- `vivado_recovery_brief`
 - `vivado_read_artifact`
 - `vivado_help`
 - `vivado_list_skills`

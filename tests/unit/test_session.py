@@ -25,12 +25,50 @@ def test_session_raw_tcl_lifecycle(tmp_path: Path) -> None:
 
     artifacts = manager.list_artifacts(session_ref)
     command_artifact = next(item for item in artifacts["artifacts"] if item["relative_path"].startswith("running/"))
+    assert command_artifact["kind"] == "command"
+    assert command_artifact["size_bytes"] > 0
+    assert command_artifact["created_at"]
+    assert command_artifact["tool_hint"] == "vivado_run_tcl"
     artifact_id = command_artifact["artifact_uri"].rsplit("/", 1)[-1]
     read = manager.read_artifact(session_ref, artifact_id)
     assert "version -short" in read["text"]
 
     stopped = manager.stop_session(session_ref, timeout_seconds=5)
     assert stopped["process_exit_code"] == 0
+
+
+def test_session_timeline_and_recovery_brief(tmp_path: Path) -> None:
+    wrapper = _make_fake_wrapper(tmp_path)
+    manager = VivadoSessionManager(default_workspace=tmp_path)
+    started = manager.start_session(vivado_path=str(wrapper), open_gui=False)
+    session_ref = str(started["session_ref"])
+
+    manager.run_tcl(session_ref=session_ref, tcl='return "probe"', timeout_seconds=5)
+    analysis = manager.analyze_reports(
+        session_ref=session_ref,
+        report_types=["timing_summary", "clock_interaction", "drc"],
+        timeout_seconds=5,
+    )
+    snapshot = manager.capture_state(session_ref=session_ref, label="recovery", include_bd=False, timeout_seconds=5)
+
+    reports = manager.list_artifacts(session_ref, kind="report")
+    assert reports["count"] >= 2
+    assert all(item["kind"] == "report" for item in reports["artifacts"])
+    assert any(item["report_type"] == "timing_summary" for item in reports["artifacts"])
+
+    timeline = manager.session_timeline(session_ref=session_ref)
+    event_kinds = {event["kind"] for event in timeline["events"]}
+    assert {"command", "result", "report", "analysis", "snapshot"} <= event_kinds
+    assert timeline["counts"]["report"] >= 2
+    assert timeline["events"] == sorted(timeline["events"], key=lambda event: event["created_at"])
+
+    brief = manager.recovery_brief(session_ref=session_ref)
+    assert brief["latest"]["report_analysis"]["artifact_uri"] == analysis["analysis_artifact_uri"]
+    assert brief["latest"]["state_snapshot"]["artifact_uri"] == snapshot["snapshot_artifact_uri"]
+    assert brief["next_action_plan"][0]["tool"] in {"vivado_constraint_diagnostics", "vivado_report"}
+    assert "vivado_session_timeline" in [row["tool"] for row in brief["recommendations"]]
+
+    manager.stop_session(session_ref, timeout_seconds=5)
 
 
 def test_safe_profile_blocks_raw_tcl_but_allows_workflow_tcl(tmp_path: Path) -> None:

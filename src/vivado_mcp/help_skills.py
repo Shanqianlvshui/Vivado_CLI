@@ -239,6 +239,19 @@ def help_topic(topic: str | None = None) -> dict[str, object]:
             ],
             "related_resources": ["vivado://skills/project-build-flow", "vivado://official-docs/index"],
         }
+    if normalized in {"recovery", "resume", "timeline", "artifacts", "artifact", "session-recovery"}:
+        return {
+            "topic": "session_recovery",
+            "summary": "Recover long-running Vivado work by reading the session timeline, latest analyses, snapshots, summaries, reports, checkpoints, and next-action plan.",
+            "recommended_tools": [
+                "vivado_recovery_brief",
+                "vivado_session_timeline",
+                "vivado_list_artifacts",
+                "vivado_read_artifact",
+                "vivado_state_diff",
+            ],
+            "related_resources": ["vivado://skills/project-build-flow"],
+        }
     if normalized in {"raw-tcl", "tcl", "expert"}:
         return {
             "topic": "raw_tcl",
@@ -496,6 +509,8 @@ def suggest_next_steps(
         }
     return {
         "recommendations": [
+            {"tool": "vivado_recovery_brief", "why": "Resume from latest session artifacts and next-action plan."},
+            {"tool": "vivado_session_timeline", "why": "Review recent commands, reports, analyses, snapshots, and checkpoints chronologically."},
             {"tool": "vivado_capture_state", "why": "Capture a baseline before mutating project state."},
             {"tool": "vivado_run_synthesis", "why": "Run synthesis before implementation."},
             {"tool": "vivado_state_diff", "why": "Compare before/after state when a build or setup step changed the project."},

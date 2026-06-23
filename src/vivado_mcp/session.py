@@ -8,6 +8,7 @@ import subprocess
 import threading
 import time
 import uuid
+from collections import Counter
 from importlib import resources
 from pathlib import Path
 from typing import Callable
@@ -144,21 +145,76 @@ class VivadoSessionManager:
             "allowed_roots": [str(root) for root in self.path_policy.roots],
         }
 
-    def list_artifacts(self, session_ref: str) -> dict[str, object]:
+    def list_artifacts(
+        self,
+        session_ref: str,
+        *,
+        kind: str | None = None,
+        report_type: str | None = None,
+    ) -> dict[str, object]:
         running = self._get(session_ref)
-        artifacts = []
-        for path in sorted(running.record.session_dir.rglob("*")):
-            if path.is_file():
-                relative = path.relative_to(running.record.session_dir).as_posix()
-                artifacts.append(
-                    {
-                        "path": str(path),
-                        "relative_path": relative,
-                        "artifact_uri": artifact_uri(session_ref, relative),
-                        "size": path.stat().st_size,
-                    }
-                )
-        return {"session_ref": session_ref, "artifacts": artifacts}
+        artifacts = self._artifact_index_for_running(running, include_all=True)["artifacts"]
+        if kind:
+            artifacts = [artifact for artifact in artifacts if artifact.get("kind") == kind]
+        if report_type:
+            artifacts = [artifact for artifact in artifacts if artifact.get("report_type") == report_type]
+        return {"session_ref": session_ref, "artifacts": artifacts, "count": len(artifacts)}
+
+    def session_timeline(
+        self,
+        *,
+        session_ref: str,
+        kind: str | None = None,
+        limit: int | None = None,
+    ) -> dict[str, object]:
+        running = self._get(session_ref)
+        events = self._artifact_index_for_running(running, include_all=True)["artifacts"]
+        if kind:
+            events = [event for event in events if event.get("kind") == kind]
+        events.sort(key=lambda event: (str(event.get("created_at") or ""), str(event.get("artifact_id") or "")))
+        if limit is not None:
+            max_events = max(0, int(limit))
+            events = events[-max_events:] if max_events else []
+        counts = dict(Counter(str(event.get("kind") or "other") for event in events))
+        return {
+            "session_ref": session_ref,
+            "session_dir": str(running.record.session_dir),
+            "events": events,
+            "counts": counts,
+            "count": len(events),
+        }
+
+    def recovery_brief(self, *, session_ref: str) -> dict[str, object]:
+        running = self._get(session_ref)
+        timeline = self.session_timeline(session_ref=session_ref)
+        events = timeline["events"] if isinstance(timeline.get("events"), list) else []
+        latest = _latest_recovery_artifacts(events)
+        report_analysis_payload = self._read_json_artifact_by_uri(running, latest.get("report_analysis"))
+        xsim_analysis_payload = self._read_json_artifact_by_uri(running, latest.get("xsim_log_analysis"))
+        snapshot_payload = self._read_json_artifact_by_uri(running, latest.get("state_snapshot"))
+        next_action_plan = _recovery_next_action_plan(
+            report_analysis_payload=report_analysis_payload,
+            xsim_analysis_payload=xsim_analysis_payload,
+            latest=latest,
+        )
+        return {
+            "ok": True,
+            "session_ref": session_ref,
+            "session_dir": str(running.record.session_dir),
+            "current_project_path": str(running.record.current_project_path) if running.record.current_project_path else None,
+            "latest": latest,
+            "summary": {
+                "event_count": timeline.get("count", 0),
+                "counts": timeline.get("counts", {}),
+                "report_analysis_issue_count": _analysis_issue_count(report_analysis_payload),
+                "xsim_issue_count": _analysis_issue_count(xsim_analysis_payload),
+            },
+            "quality_gates": _recovery_quality_gates(report_analysis_payload),
+            "next_action_plan": next_action_plan,
+            "recommendations": _recovery_recommendations(latest, next_action_plan),
+            "timeline_preview": events[-10:],
+            "state_snapshot": _snapshot_summary(snapshot_payload),
+        }
 
     def read_artifact(self, session_ref: str, artifact_id: str, max_chars: int = 20000) -> dict[str, object]:
         running = self._get(session_ref)
@@ -1884,6 +1940,23 @@ class VivadoSessionManager:
             raise ValueError(f"State artifact is not a JSON object: {relative}")
         return data
 
+    def _read_json_artifact_by_uri(self, running: "_RunningSession", artifact: object) -> dict[str, object] | None:
+        if not isinstance(artifact, dict):
+            return None
+        artifact_uri_value = artifact.get("artifact_uri")
+        if not isinstance(artifact_uri_value, str) or not artifact_uri_value:
+            return None
+        try:
+            relative = _artifact_relative(running.record.session_ref, artifact_uri_value)
+            path = (running.record.session_dir / relative).resolve()
+            session_root = running.record.session_dir.resolve()
+            if session_root not in [path, *path.parents] or not path.is_file():
+                return None
+            data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        return data if isinstance(data, dict) else None
+
     def _capture_diff_around(
         self,
         *,
@@ -1975,28 +2048,41 @@ class VivadoSessionManager:
         summaries = [parse_nonproject_summary(path) for path in paths]
         return merge_nonproject_summaries(summaries), paths
 
-    def _artifact_index_for_running(self, running: "_RunningSession") -> dict[str, object]:
+    def _artifact_index_for_running(self, running: "_RunningSession", *, include_all: bool = False) -> dict[str, object]:
         artifacts = []
         for path in sorted(running.record.session_dir.rglob("*")):
             if not path.is_file():
                 continue
             relative = path.relative_to(running.record.session_dir).as_posix()
-            if relative.startswith(("inbox/", "running/")):
+            if not include_all and relative.startswith(("inbox/", "running/")):
                 continue
             kind = _artifact_kind(path)
-            if kind not in {"report", "analysis", "simulation_log", "checkpoint"}:
+            if not include_all and kind not in {"report", "analysis", "simulation_log", "checkpoint"}:
                 continue
+            stat = path.stat()
             row: dict[str, object] = {
                 "artifact_id": relative,
+                "relative_path": relative,
                 "kind": kind,
                 "path": str(path),
                 "artifact_uri": artifact_uri(running.record.session_ref, relative),
-                "size_bytes": path.stat().st_size,
+                "size_bytes": stat.st_size,
+                "size": stat.st_size,
+                "created_at": _mtime_iso(stat.st_mtime),
+                "modified_at": _mtime_iso(stat.st_mtime),
+                "tool_hint": _artifact_tool_hint(path, kind),
             }
             report_type = _report_type_from_artifact(path)
             if report_type:
                 row["report_type"] = report_type
+            analysis_type = _analysis_type_from_artifact(path)
+            if analysis_type:
+                row["analysis_type"] = analysis_type
+            summary_type = _summary_type_from_artifact(path)
+            if summary_type:
+                row["summary_type"] = summary_type
             artifacts.append(row)
+        artifacts.sort(key=lambda item: (str(item.get("created_at") or ""), str(item.get("artifact_id") or "")))
         return {"artifacts": artifacts, "count": len(artifacts)}
 
     def _describe_fileset_for_running(self, running: "_RunningSession", *, name: str, timeout_seconds: int) -> dict[str, object]:
@@ -2276,6 +2362,10 @@ def _timestamp() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
+def _mtime_iso(timestamp: float) -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(timestamp))
+
+
 def _safe_label(label: str | None) -> str:
     value = re.sub(r"[^A-Za-z0-9_.-]+", "_", (label or "snapshot").strip())
     return value.strip("._") or "snapshot"
@@ -2307,12 +2397,22 @@ def _snapshot_ref(snapshot: dict[str, object] | None) -> dict[str, object] | Non
 def _artifact_kind(path: Path) -> str:
     suffix = path.suffix.lower()
     parts = set(path.parts)
+    if "running" in parts or "inbox" in parts:
+        return "command"
+    if "done" in parts and path.name.endswith(".result.txt"):
+        return "result"
     if suffix == ".rpt" or "reports" in parts:
         return "report"
-    if "analyses" in parts or path.name.startswith("report_analysis_"):
+    if "snapshots" in parts and suffix == ".json":
+        return "snapshot"
+    if "summaries" in parts and suffix == ".tsv":
+        return "summary"
+    if "analyses" in parts or path.name.startswith(("report_analysis_", "xsim_log_analysis_")):
         return "analysis"
     if suffix == ".log" and any(name in path.name.lower() for name in ("xsim", "xelab", "xvlog", "xvhdl")):
         return "simulation_log"
+    if suffix == ".log":
+        return "log"
     if suffix == ".dcp" or "checkpoints" in parts:
         return "checkpoint"
     return "other"
@@ -2337,6 +2437,176 @@ def _report_type_from_artifact(path: Path) -> str:
     if "timing" in name:
         return "timing"
     return ""
+
+
+def _analysis_type_from_artifact(path: Path) -> str:
+    name = path.name.lower()
+    if name.startswith("report_analysis_"):
+        return "report_analysis"
+    if name.startswith("xsim_log_analysis_"):
+        return "xsim_log_analysis"
+    if "analysis" in name and "report" in name:
+        return "report_analysis"
+    return ""
+
+
+def _summary_type_from_artifact(path: Path) -> str:
+    if path.suffix.lower() != ".tsv":
+        return ""
+    name = path.stem.lower()
+    if name.startswith("nonproject"):
+        return "nonproject"
+    if name.startswith("bd_"):
+        return "block_design"
+    if name.startswith("ips"):
+        return "ip"
+    if name.startswith("fileset"):
+        return "fileset"
+    if name.startswith("constraint"):
+        return "constraint"
+    if name.startswith("simulation") or name.startswith("xsim"):
+        return "simulation"
+    if name.startswith("project"):
+        return "project"
+    return "summary"
+
+
+def _artifact_tool_hint(path: Path, kind: str) -> str:
+    name = path.name.lower()
+    if kind == "command":
+        return "vivado_run_tcl"
+    if kind == "result":
+        return "vivado_run_tcl"
+    if kind == "report":
+        return "vivado_report"
+    if kind == "checkpoint":
+        return "vivado_nonproject_*_design"
+    if kind == "snapshot":
+        return "vivado_capture_state"
+    if kind == "analysis":
+        if name.startswith("xsim_log_analysis_"):
+            return "vivado_analyze_xsim_logs"
+        return "vivado_analyze_reports"
+    if kind == "summary":
+        summary_type = _summary_type_from_artifact(path)
+        hints = {
+            "nonproject": "vivado_nonproject_audit",
+            "block_design": "vivado_bd_summary",
+            "ip": "vivado_list_ips",
+            "fileset": "vivado_describe_fileset",
+            "constraint": "vivado_constraint_diagnostics",
+            "simulation": "vivado_simulation_audit",
+            "project": "vivado_project_summary",
+        }
+        return hints.get(summary_type, "vivado_project_summary")
+    if kind == "simulation_log":
+        return "vivado_analyze_xsim_logs"
+    return ""
+
+
+def _latest_recovery_artifacts(events: list[object]) -> dict[str, object]:
+    latest: dict[str, object] = {}
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        kind = str(event.get("kind") or "")
+        analysis_type = str(event.get("analysis_type") or "")
+        summary_type = str(event.get("summary_type") or "")
+        if kind == "analysis" and analysis_type:
+            latest[analysis_type] = event
+        elif kind == "snapshot":
+            latest["state_snapshot"] = event
+        elif kind == "checkpoint":
+            latest["checkpoint"] = event
+        elif kind == "report":
+            latest["report"] = event
+        elif kind == "summary" and summary_type:
+            latest[f"{summary_type}_summary"] = event
+        elif kind == "simulation_log":
+            latest["simulation_log"] = event
+    return latest
+
+
+def _recovery_next_action_plan(
+    *,
+    report_analysis_payload: dict[str, object] | None,
+    xsim_analysis_payload: dict[str, object] | None,
+    latest: dict[str, object],
+) -> list[dict[str, object]]:
+    report_plan = _nested_list(report_analysis_payload, ["analysis", "next_action_plan"])
+    if report_plan:
+        return report_plan[:5]
+    xsim_plan = _nested_list(xsim_analysis_payload, ["analysis", "next_action_plan"])
+    if xsim_plan:
+        return xsim_plan[:5]
+    if latest.get("report_analysis"):
+        return [{"tool": "vivado_analyze_reports", "why": "Refresh report diagnostics and inspect quality gates."}]
+    if latest.get("simulation_log"):
+        return [{"tool": "vivado_analyze_xsim_logs", "why": "Analyze the latest simulation logs."}]
+    if latest.get("state_snapshot"):
+        return [{"tool": "vivado_state_diff", "why": "Compare the latest snapshot with a prior known-good state."}]
+    return [{"tool": "vivado_project_summary", "why": "No analysis artifact was found; inspect current project state first."}]
+
+
+def _recovery_quality_gates(report_analysis_payload: dict[str, object] | None) -> dict[str, object]:
+    gates = _nested_dict(report_analysis_payload, ["analysis", "quality_gates"])
+    return gates if gates is not None else {}
+
+
+def _recovery_recommendations(latest: dict[str, object], next_action_plan: list[dict[str, object]]) -> list[dict[str, str]]:
+    recommendations = [
+        {"tool": "vivado_session_timeline", "why": "Review the chronological command/report/analysis/checkpoint history before resuming."},
+    ]
+    if latest.get("report_analysis"):
+        recommendations.append({"tool": "vivado_read_artifact", "why": "Read the latest report analysis JSON if more detail is needed."})
+    if next_action_plan:
+        first = next_action_plan[0]
+        recommendations.append(
+            {
+                "tool": str(first.get("tool") or "vivado_project_summary"),
+                "why": str(first.get("why") or "Continue from the latest analysis recommendation."),
+            }
+        )
+    return recommendations
+
+
+def _analysis_issue_count(payload: dict[str, object] | None) -> int:
+    issues = _nested_list(payload, ["analysis", "issues"])
+    return len(issues)
+
+
+def _snapshot_summary(payload: dict[str, object] | None) -> dict[str, object]:
+    if not payload:
+        return {}
+    snapshot = payload.get("snapshot") if isinstance(payload.get("snapshot"), dict) else {}
+    project = payload.get("project") if isinstance(payload.get("project"), dict) else {}
+    return {
+        "id": snapshot.get("id"),
+        "label": snapshot.get("label"),
+        "digest": snapshot.get("digest"),
+        "created_at": snapshot.get("created_at"),
+        "project": project,
+    }
+
+
+def _nested_list(payload: dict[str, object] | None, path: list[str]) -> list[dict[str, object]]:
+    value: object = payload
+    for key in path:
+        if not isinstance(value, dict):
+            return []
+        value = value.get(key)
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _nested_dict(payload: dict[str, object] | None, path: list[str]) -> dict[str, object] | None:
+    value: object = payload
+    for key in path:
+        if not isinstance(value, dict):
+            return None
+        value = value.get(key)
+    return value if isinstance(value, dict) else None
 
 
 def _bd_apply_plan(

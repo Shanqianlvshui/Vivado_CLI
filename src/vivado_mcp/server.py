@@ -1011,9 +1011,29 @@ def vivado_state_diff(
 
 
 @mcp.tool()
-def vivado_list_artifacts(session_ref: str) -> dict[str, object]:
-    """List files produced in a managed session directory."""
-    return manager.list_artifacts(session_ref)
+def vivado_list_artifacts(
+    session_ref: str,
+    kind: str | None = None,
+    report_type: str | None = None,
+) -> dict[str, object]:
+    """List files produced in a managed session directory, with optional kind/report_type filters."""
+    return manager.list_artifacts(session_ref, kind=kind, report_type=report_type)
+
+
+@mcp.tool()
+def vivado_session_timeline(
+    session_ref: str,
+    kind: str | None = None,
+    limit: int | None = None,
+) -> dict[str, object]:
+    """Return a chronological timeline of commands, results, summaries, reports, analyses, snapshots, and checkpoints."""
+    return manager.session_timeline(session_ref=session_ref, kind=kind, limit=limit)
+
+
+@mcp.tool()
+def vivado_recovery_brief(session_ref: str) -> dict[str, object]:
+    """Return a resumable session brief with latest artifacts and next-action guidance."""
+    return manager.recovery_brief(session_ref=session_ref)
 
 
 @mcp.tool()
