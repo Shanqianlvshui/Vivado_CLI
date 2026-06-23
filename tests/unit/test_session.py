@@ -251,6 +251,91 @@ def test_open_project_in_gui_updates_project_hint_without_focusing_by_default(
     manager.stop_session(session_ref, timeout_seconds=5)
 
 
+def test_fileset_and_source_workflow_returns_structured_state(tmp_path: Path) -> None:
+    wrapper = _make_fake_wrapper(tmp_path)
+    manager = VivadoSessionManager(default_workspace=tmp_path)
+    started = manager.start_session(vivado_path=str(wrapper), open_gui=False)
+    session_ref = str(started["session_ref"])
+
+    top_v = tmp_path / "top.v"
+    alu_v = tmp_path / "alu.v"
+    top_v.write_text("// top\n", encoding="utf-8")
+    alu_v.write_text("// alu\n", encoding="utf-8")
+    timing_xdc = tmp_path / "timing.xdc"
+    pinout_xdc = tmp_path / "pinout.xdc"
+    timing_xdc.write_text("create_clock -name clk -period 10 [get_ports clk]\n", encoding="utf-8")
+    pinout_xdc.write_text("set_property PACKAGE_PIN E3 [get_ports clk]\n", encoding="utf-8")
+
+    filesets = manager.list_filesets(session_ref=session_ref, timeout_seconds=5)
+    assert filesets["ok"] is True
+    assert filesets["filesets"]["has_project"] is True
+    sources = {row["name"]: row for row in filesets["filesets"]["filesets"]}
+    assert "sources_1" in sources
+    assert "constrs_1" in sources
+    assert sources["sources_1"]["file_count"] == 3
+
+    created = manager.create_fileset(
+        session_ref=session_ref,
+        name="constrs_extra",
+        kind="constrs",
+        timeout_seconds=5,
+    )
+    assert created["ok"] is True
+    assert created["result"] == "fileset=constrs_extra"
+
+    described = manager.describe_fileset(session_ref=session_ref, name="sources_1", timeout_seconds=5)
+    assert described["ok"] is True
+    assert described["fileset_summary"]["name"] == "sources_1"
+    assert described["fileset_summary"]["properties"]["TOP"] == "top"
+    assert described["fileset_summary"]["files"][0]["file_type"] == "Verilog"
+
+    added = manager.add_sources(
+        session_ref=session_ref,
+        sources=[str(alu_v)],
+        constraints=[str(timing_xdc)],
+        top="alu",
+        defines=["DEBUG=1"],
+        library="work",
+        file_type="Verilog",
+        used_in=["synthesis", "implementation"],
+        timeout_seconds=5,
+    )
+    assert added["ok"] is True
+    assert added["result"] == "sources_updated"
+
+    props = manager.set_file_properties(
+        session_ref=session_ref,
+        paths=[str(alu_v)],
+        properties={"LIBRARY": "custom_lib", "PROCESSING_ORDER": 5},
+        timeout_seconds=5,
+    )
+    assert props["ok"] is True
+    assert props["result"] == "file_properties_set"
+    assert props["expect_destructive"] is True
+
+    top = manager.set_top(session_ref=session_ref, top="alu", fileset="sources_1", timeout_seconds=5)
+    assert top["ok"] is True
+    assert top["result"] == "top=alu"
+    assert top["expect_destructive"] is True
+
+    removed = manager.remove_sources(session_ref=session_ref, paths=[str(alu_v)], timeout_seconds=5)
+    assert removed["ok"] is True
+    assert removed["result"] == "files_removed"
+    assert removed["expect_destructive"] is True
+
+    diag = manager.constraint_diagnostics(session_ref=session_ref, timeout_seconds=5)
+    assert diag["ok"] is True
+    diagnostics = diag["diagnostics"]
+    assert diagnostics["has_project"] is True
+    assert any(fs["name"] == "constrs_1" for fs in diagnostics["constrs_filesets"])
+    assert any(cf["path"].endswith("timing.xdc") for cf in diagnostics["constraint_files"])
+    assert diagnostics["xdc_markers"]["create_clock"] == 1
+    assert diagnostics["xdc_markers"]["set_input_delay"] == 1
+    assert diagnostics["xdc_markers"]["get_ports"] == 1
+
+    manager.stop_session(session_ref, timeout_seconds=5)
+
+
 def test_focus_gui_explicitly_activates_window(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     wrapper = _make_fake_wrapper(tmp_path)
     manager = VivadoSessionManager(default_workspace=tmp_path)

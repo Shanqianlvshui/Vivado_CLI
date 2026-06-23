@@ -206,16 +206,120 @@ def vivado_add_sources(
     sources: list[str] | None = None,
     constraints: list[str] | None = None,
     top: str | None = None,
+    sources_fileset: str | None = None,
+    include_dirs: list[str] | None = None,
+    defines: list[str] | None = None,
+    library: str | None = None,
+    file_type: str | None = None,
+    used_in: list[Literal["synthesis", "simulation", "implementation"]] | None = None,
+    processing_order: int | None = None,
     timeout_seconds: int = 120,
 ) -> dict[str, object]:
-    """Add RTL/source and constraint files to the current Vivado project."""
+    """Add RTL/source/constraint files to the current Vivado project.
+
+    ``sources_fileset`` lets the caller pick a non-default fileset (e.g.
+    ``sources_2`` or a custom RTL fileset). ``include_dirs`` and ``defines``
+    are applied at the fileset level so Verilog ``\\`include`` and VHDL
+    search paths resolve without listing each directory as a tracked file.
+    """
     return manager.add_sources(
         session_ref=session_ref,
         sources=sources,
         constraints=constraints,
         top=top,
+        sources_fileset=sources_fileset,
+        include_dirs=include_dirs,
+        defines=defines,
+        library=library,
+        file_type=file_type,
+        used_in=used_in,
+        processing_order=processing_order,
         timeout_seconds=timeout_seconds,
     )
+
+
+@mcp.tool()
+def vivado_remove_sources(
+    session_ref: str,
+    paths: list[str],
+    fileset: str | None = None,
+    force: bool = False,
+    timeout_seconds: int = 120,
+) -> dict[str, object]:
+    """Remove files from a Vivado project fileset. Destructive — reviewed upstream."""
+    return manager.remove_sources(
+        session_ref=session_ref,
+        paths=paths,
+        fileset=fileset,
+        force=force,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+@mcp.tool()
+def vivado_set_file_properties(
+    session_ref: str,
+    paths: list[str],
+    properties: dict[str, object],
+    fileset: str | None = None,
+    timeout_seconds: int = 60,
+) -> dict[str, object]:
+    """Set or update Vivado file properties (FILE_TYPE, LIBRARY, PROCESSING_ORDER, USED_IN_*)."""
+    return manager.set_file_properties(
+        session_ref=session_ref,
+        paths=paths,
+        properties=properties,
+        fileset=fileset,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+@mcp.tool()
+def vivado_set_top(
+    session_ref: str,
+    top: str | None = None,
+    fileset: str | None = None,
+    timeout_seconds: int = 60,
+) -> dict[str, object]:
+    """Set or query the Vivado top module for the given fileset.
+
+    Omit ``top`` to read the current value (read-only).
+    """
+    return manager.set_top(
+        session_ref=session_ref,
+        top=top,
+        fileset=fileset,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+@mcp.tool()
+def vivado_list_filesets(session_ref: str, timeout_seconds: int = 60) -> dict[str, object]:
+    """List every fileset in the current Vivado project with type, file count, and top."""
+    return manager.list_filesets(session_ref=session_ref, timeout_seconds=timeout_seconds)
+
+
+@mcp.tool()
+def vivado_create_fileset(
+    session_ref: str,
+    name: str,
+    kind: Literal["constrs", "simulation", "Source", "BlockSrcs"] = "constrs",
+    timeout_seconds: int = 120,
+) -> dict[str, object]:
+    """Create a new Vivado fileset of the given type (constrs/simulation/Source/BlockSrcs)."""
+    return manager.create_fileset(session_ref=session_ref, name=name, kind=kind, timeout_seconds=timeout_seconds)
+
+
+@mcp.tool()
+def vivado_describe_fileset(session_ref: str, name: str, timeout_seconds: int = 60) -> dict[str, object]:
+    """Describe one Vivado fileset in detail: file list, library, processing order, USED_IN scopes."""
+    return manager.describe_fileset(session_ref=session_ref, name=name, timeout_seconds=timeout_seconds)
+
+
+@mcp.tool()
+def vivado_constraint_diagnostics(session_ref: str, timeout_seconds: int = 120) -> dict[str, object]:
+    """Audit XDC constraint filesets: loading order, USED_IN scopes, methodology markers, and warnings."""
+    return manager.constraint_diagnostics(session_ref=session_ref, timeout_seconds=timeout_seconds)
 
 
 @mcp.tool()

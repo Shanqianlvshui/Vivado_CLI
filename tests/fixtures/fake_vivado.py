@@ -124,6 +124,80 @@ def _result_for(body: str) -> str:
             encoding="utf-8",
         )
         return f"summary={path}"
+    fileset_list_match = re.search(r"set mcp_list_filesets_file \{([^}]+)\}", body)
+    if fileset_list_match:
+        path = Path(fileset_list_match.group(1))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "\n".join(
+                [
+                    "has_project\t1",
+                    "current_project\tfake_project",
+                    "fileset\tsources_1\tSource\t3\t1\t1\t1\ttop\t1",
+                    "fileset\tsim_1\tSimulation\t1\t0\t1\t0\ttb_top\t0",
+                    "fileset\tconstrs_1\tConstrs\t2\t1\t0\t1\ttop\t1",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        return f"filesets={path}"
+    fileset_desc_match = re.search(r"set mcp_desc_file \{([^}]+)\}", body)
+    if fileset_desc_match:
+        path = Path(fileset_desc_match.group(1))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "\n".join(
+                [
+                    "fileset\tsources_1",
+                    "property\tFILESET_TYPE\tSource",
+                    "property\tTOP\ttop",
+                    "file\tC:/fake/top.v\tVerilog\txil_defaultlib\t0\t1\t1\t1",
+                    "file\tC:/fake/alu.v\tVerilog\txil_defaultlib\t1\t1\t1\t1",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        return f"fileset_desc={path}"
+    constr_diag_match = re.search(r"set mcp_diag_file \{([^}]+)\}", body)
+    if constr_diag_match:
+        path = Path(constr_diag_match.group(1))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "\n".join(
+                [
+                    "has_project\t1",
+                    "current_project\tfake_project",
+                    "fileset\tconstrs_1\tConstrs\t1\t1\t0\t1\ttop",
+                    "constraint_file\tconstrs_1\t0\tC:/fake/timing.xdc\tXDC",
+                    "constraint_file\tconstrs_1\t1\tC:/fake/pinout.xdc\tXDC",
+                    "marker\tcreate_clock\t1",
+                    "marker\tset_false_path\t0",
+                    "marker\tset_input_delay\t1",
+                    "marker\tset_output_delay\t1",
+                    "marker\tget_ports\t1",
+                    "marker\tset_clock_groups\t0",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        return f"constraint_diag={path}"
+    create_fileset_match = re.search(r"create_fileset -type \{[^}]+\} \{([^}]+)\}", body)
+    if create_fileset_match:
+        return f"fileset={create_fileset_match.group(1)}"
+    # Order matters: add_files (which also sets top) must be matched before
+    # the top-only branch, otherwise add_sources returns "top=...".
+    if "add_files" in body:
+        return "sources_updated"
+    if re.search(r"set_property top \{[^}]+\}", body):
+        top_match = re.search(r"set_property top \{([^}]+)\}", body)
+        return f"top={top_match.group(1) if top_match else ''}"
+    if "set_property -dict" in body and "get_files" in body:
+        return "file_properties_set"
+    if "remove_files" in body:
+        return "files_removed"
     report_match = re.search(r"-file \{([^}]+)\}", body)
     if report_match:
         path = Path(report_match.group(1))

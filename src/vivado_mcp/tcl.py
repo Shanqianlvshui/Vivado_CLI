@@ -66,15 +66,66 @@ def add_sources_tcl(
     sources: list[Path],
     constraints: list[Path],
     top: str | None,
+    sources_fileset: str | None = None,
+    include_dirs: list[Path] | None = None,
+    defines: list[str] | None = None,
+    library: str | None = None,
+    file_type: str | None = None,
+    used_in: list[str] | None = None,
+    processing_order: int | None = None,
 ) -> str:
+    """Generate ``add_files`` calls with project/source property side effects.
+
+    All new parameters are optional and only emit Tcl when provided, so the
+    existing ``add_sources`` tool keeps its current behavior for callers
+    that do not use the new options.
+    """
     lines: list[str] = []
+    sources_fileset = sources_fileset or "sources_1"
     if sources:
-        lines.append(f"add_files [list {tcl_list(sources)}]")
+        fileset_arg = f" -fileset {quote_tcl(sources_fileset)}" if sources_fileset else ""
+        lines.append(f"add_files{fileset_arg} [list {tcl_list(sources)}]")
+        properties: dict[str, Any] = {}
+        if library is not None:
+            properties["LIBRARY"] = library
+        if file_type is not None:
+            properties["FILE_TYPE"] = file_type
+        if used_in:
+            for scope in used_in:
+                key = {
+                    "synthesis": "IS_ENABLED_SYNTHESIS",
+                    "simulation": "IS_ENABLED_SIMULATION",
+                    "implementation": "IS_ENABLED_IMPLEMENTATION",
+                }.get(scope)
+                if key:
+                    properties[key] = 1
+        if processing_order is not None:
+            properties["PROCESSING_ORDER"] = int(processing_order)
+        if properties:
+            lines.append(
+                f"set_property -dict [list {_property_list(properties)}] [get_files [list {tcl_list(sources)}]]"
+            )
     if constraints:
         lines.append(f"add_files -fileset constrs_1 [list {tcl_list(constraints)}]")
+    if include_dirs:
+        # Set INCLUDE_DIRS on the fileset so Verilog `\`include` and VHDL
+        # search paths resolve without adding each directory as a tracked
+        # file. Existing INCLUDE_DIRS values are merged with the new list.
+        for path in include_dirs:
+            lines.append(
+                f"set_property INCLUDE_DIRS [list {tcl_list(include_dirs)}] [get_filesets {quote_tcl(sources_fileset)}]"
+            )
+            break  # one assignment covers the whole list
+    if defines:
+        # Defines are attached at the fileset level rather than per-file.
+        define_props = {f"DEFINE.{name}": "" for name in defines}
+        if define_props:
+            lines.append(
+                f"set_property -dict [list {_property_list(define_props)}] [get_filesets {quote_tcl(sources_fileset)}]"
+            )
     if top:
         lines.append(f"set_property top {quote_tcl(top)} [current_fileset]")
-    lines.append('update_compile_order -fileset sources_1')
+    lines.append(f"update_compile_order -fileset {quote_tcl(sources_fileset)}")
     lines.append('return "sources_updated"')
     return "\n".join(lines)
 
@@ -487,5 +538,263 @@ def project_summary_tcl(output_path: Path) -> str:
             "foreach bd [get_files -quiet -filter {FILE_TYPE == \"Block Designs\"}] { mcp_put $f block_design $bd }",
             "close $f",
             f"return \"summary={out_string}\"",
+        ]
+    )
+
+
+# ---------------------------------------------------------------------------
+# Fileset / source / constraint helpers
+# ---------------------------------------------------------------------------
+
+
+def list_filesets_tcl(output_path: Path) -> str:
+    """Emit a TSV describing every fileset in the current project.
+
+    Columns: ``fileset | type | file_count | is_active_synthesis | is_active_simulation
+    | is_active_implementation | top | is_default``.
+    """
+    out = quote_tcl(output_path)
+    out_string = str(output_path).replace("\\", "/")
+    return "\n".join(
+        [
+            f"set mcp_list_filesets_file {out}",
+            "set f [open $mcp_list_filesets_file w]",
+            "proc mcp_put {f args} { puts $f [join $args \"\\t\"] }",
+            "if {[catch {current_project} mcp_proj] || $mcp_proj eq \"\"} {",
+            "  mcp_put $f has_project 0",
+            "  close $f",
+            f"  return \"filesets={out_string}\"",
+            "}",
+            "mcp_put $f has_project 1",
+            "mcp_put $f current_project $mcp_proj",
+            "foreach fs [get_filesets -quiet] {",
+            "  set mcp_fs_type \"\"",
+            "  set mcp_fs_top \"\"",
+            "  set mcp_synth 0",
+            "  set mcp_sim 0",
+            "  set mcp_impl 0",
+            "  set mcp_default 0",
+            "  set mcp_count 0",
+            "  catch { set mcp_fs_type [get_property FILESET_TYPE $fs] }",
+            "  catch { set mcp_fs_top [get_property TOP $fs] }",
+            "  catch { set mcp_synth [get_property IS_ENABLED_SYNTHESIS $fs] }",
+            "  catch { set mcp_sim [get_property IS_ENABLED_SIMULATION $fs] }",
+            "  catch { set mcp_impl [get_property IS_ENABLED_IMPLEMENTATION $fs] }",
+            "  catch { set mcp_default [get_property IS_DEFAULT_FILESET $fs] }",
+            "  catch { set mcp_count [llength [get_files -quiet -of $fs]] }",
+            "  mcp_put $f fileset $fs $mcp_fs_type $mcp_count $mcp_synth $mcp_sim $mcp_impl $mcp_fs_top $mcp_default",
+            "}",
+            "close $f",
+            f"return \"filesets={out_string}\"",
+        ]
+    )
+
+
+def create_fileset_tcl(*, name: str, kind: str) -> str:
+    """Create one fileset of the given type and return its name.
+
+    ``kind`` is one of ``constrs``, ``simulation``, ``Source``, ``BlockSrcs``,
+    or any other type Vivado accepts. The result is ``fileset=<name>``.
+    """
+    return "\n".join(
+        [
+            f"set mcp_new_fs [create_fileset -type {quote_tcl(kind)} {quote_tcl(name)}]",
+            'return "fileset=$mcp_new_fs"',
+        ]
+    )
+
+
+def describe_fileset_tcl(output_path: Path, *, name: str) -> str:
+    """Emit a TSV with one fileset's full details.
+
+    Columns: ``fileset | file | file_type | library | processing_order
+    | used_in_synth | used_in_sim | used_in_impl`` for each contained file,
+    followed by ``property | key | value`` for each fileset-level property.
+    """
+    out = quote_tcl(output_path)
+    out_string = str(output_path).replace("\\", "/")
+    return "\n".join(
+        [
+            f"set mcp_desc_file {out}",
+            "set f [open $mcp_desc_file w]",
+            "proc mcp_put {f args} { puts $f [join $args \"\\t\"] }",
+            f"set fs [get_filesets -quiet {quote_tcl(name)}]",
+            "if {[llength $fs] == 0} {",
+            f"  mcp_put $f error fileset_not_found {quote_tcl(name)}",
+            "  close $f",
+            f"  return \"fileset_desc={out_string}\"",
+            "}",
+            "set fs [lindex $fs 0]",
+            "mcp_put $f fileset $fs",
+            "foreach prop {FILESET_TYPE TOP IS_ENABLED_SYNTHESIS IS_ENABLED_SIMULATION IS_ENABLED_IMPLEMENTATION IS_DEFAULT_FILESET} {",
+            "  set value \"\"",
+            "  if {![catch {set value [get_property $prop $fs]} err]} {",
+            "    mcp_put $f property $prop $value",
+            "  }",
+            "}",
+            "foreach file [get_files -quiet -of $fs] {",
+            "  set ftype \"\"",
+            "  set lib \"\"",
+            "  set order 0",
+            "  set synth 0",
+            "  set sim 0",
+            "  set impl 0",
+            "  catch { set ftype [get_property FILE_TYPE $file] }",
+            "  catch { set lib [get_property LIBRARY $file] }",
+            "  catch { set order [get_property PROCESSING_ORDER $file] }",
+            "  catch { set synth [get_property IS_ENABLED_SYNTHESIS $file] }",
+            "  catch { set sim [get_property IS_ENABLED_SIMULATION $file] }",
+            "  catch { set impl [get_property IS_ENABLED_IMPLEMENTATION $file] }",
+            "  mcp_put $f file $file $ftype $lib $order $synth $sim $impl",
+            "}",
+            "close $f",
+            f"return \"fileset_desc={out_string}\"",
+        ]
+    )
+
+
+def remove_files_tcl(*, paths: list[Path], fileset: str | None = None, force: bool = False) -> str:
+    """Generate ``remove_files`` for the given absolute paths."""
+    if not paths:
+        raise ValueError("remove_files_tcl requires at least one path")
+    force_arg = " -force" if force else ""
+    if fileset:
+        body = f"remove_files -fileset {quote_tcl(fileset)}{force_arg} [list {tcl_list(paths)}]"
+    else:
+        body = f"remove_files{force_arg} [list {tcl_list(paths)}]"
+    return "\n".join([body, 'return "files_removed"'])
+
+
+def set_file_properties_tcl(
+    *,
+    paths: list[Path],
+    properties: dict[str, Any],
+    fileset: str | None = None,
+) -> str:
+    """Generate a ``set_property`` call against a list of files.
+
+    ``fileset`` scopes the ``get_files`` query so the same property can be set
+    for files in different constraint sets independently.
+    """
+    if not paths:
+        raise ValueError("set_file_properties_tcl requires at least one path")
+    if not properties:
+        raise ValueError("set_file_properties_tcl requires at least one property")
+    qualifier = f" -of [get_filesets {quote_tcl(fileset)}]" if fileset else ""
+    return "\n".join(
+        [
+            f"set_property -dict [list {_property_list(properties)}] [get_files [list {tcl_list(paths)}]{qualifier}]",
+            'return "file_properties_set"',
+        ]
+    )
+
+
+def set_top_tcl(*, top: str | None, fileset: str | None = None) -> str:
+    """Set or query the top module on a fileset.
+
+    When ``top`` is None the generated Tcl only reads the current value.
+    """
+    target = f"[get_filesets {quote_tcl(fileset)}]" if fileset else "[current_fileset]"
+    if top is None:
+        return f"return \"top=[get_property TOP {target}]\""
+    return "\n".join(
+        [
+            f"set_property top {quote_tcl(top)} {target}",
+            f"return \"top=[get_property TOP {target}]\"",
+        ]
+    )
+
+
+def constraint_diagnostics_tcl(output_path: Path) -> str:
+    """Emit a TSV that audits XDC constraint files in the current project.
+
+    For each constraint fileset we record its name, USED_IN scopes, top,
+    file order, and per-XDC loading order. We also collect a few common
+    XDC sanity checks based on simple string scans, to surface obvious
+    methodology issues (UG903 / UG949) without parsing the XDC as a real
+    tool would.
+    """
+    out = quote_tcl(output_path)
+    out_string = str(output_path).replace("\\", "/")
+    return "\n".join(
+        [
+            f"set mcp_diag_file {out}",
+            "set f [open $mcp_diag_file w]",
+            "proc mcp_put {f args} { puts $f [join $args \"\\t\"] }",
+            "if {[catch {current_project} mcp_proj] || $mcp_proj eq \"\"} {",
+            "  mcp_put $f has_project 0",
+            "  close $f",
+            f"  return \"constraint_diag={out_string}\"",
+            "}",
+            "mcp_put $f has_project 1",
+            "mcp_put $f current_project $mcp_proj",
+            "set mcp_constr_filesets [get_filesets -quiet -filter {FILESET_TYPE == \"Constrs\"}]",
+            "if {[llength $mcp_constr_filesets] == 0} {",
+            "  mcp_put $f warning no_constrs_fileset",
+            "  close $f",
+            f"  return \"constraint_diag={out_string}\"",
+            "}",
+            "foreach fs $mcp_constr_filesets {",
+            "  set used_in_synth 0",
+            "  set used_in_sim 0",
+            "  set used_in_impl 0",
+            "  set fs_top \"\"",
+            "  set fs_default 0",
+            "  catch { set used_in_synth [get_property IS_ENABLED_SYNTHESIS $fs] }",
+            "  catch { set used_in_sim [get_property IS_ENABLED_SIMULATION $fs] }",
+            "  catch { set used_in_impl [get_property IS_ENABLED_IMPLEMENTATION $fs] }",
+            "  catch { set fs_top [get_property TOP $fs] }",
+            "  catch { set fs_default [get_property IS_DEFAULT_FILESET $fs] }",
+            "  mcp_put $f fileset $fs Constrs $fs_default $used_in_synth $used_in_sim $used_in_impl $fs_top",
+            "  set mcp_order 0",
+            "  foreach file [get_files -quiet -of $fs] {",
+            "    set ftype \"\"",
+            "    catch { set ftype [get_property FILE_TYPE $file] }",
+            "    mcp_put $f constraint_file $fs $mcp_order $file $ftype",
+            "    incr mcp_order",
+            "  }",
+            "}",
+            # Scan the XDCs for high-signal methodology markers. These are
+            # best-effort hints only; users still need real report_timing
+            # and report_clock_interaction analysis after build.
+            "set mcp_xdc_has_create_clock 0",
+            "set mcp_xdc_has_false_path 0",
+            "set mcp_xdc_has_set_input_delay 0",
+            "set mcp_xdc_has_set_output_delay 0",
+            "set mcp_xdc_has_get_ports 0",
+            "set mcp_xdc_has_clock_groups 0",
+            "foreach fs $mcp_constr_filesets {",
+            "  foreach file [get_files -quiet -of $fs -filter {FILE_TYPE == \"XDC\"}] {",
+            "    set fh [open $file r]",
+            "    set mcp_contents [read $fh]",
+            "    close $fh",
+            "    foreach pattern {create_clock set_false_path set_input_delay set_output_delay get_ports set_clock_groups} {",
+            "      if {[regexp -- $pattern $mcp_contents]} {",
+            "        switch -- $pattern {",
+            "          create_clock { set mcp_xdc_has_create_clock 1 }",
+            "          set_false_path { set mcp_xdc_has_false_path 1 }",
+            "          set_input_delay { set mcp_xdc_has_input_delay 1 }",
+            "          set_output_delay { set mcp_xdc_has_output_delay 1 }",
+            "          get_ports { set mcp_xdc_has_get_ports 1 }",
+            "          set_clock_groups { set mcp_xdc_has_clock_groups 1 }",
+            "        }",
+            "      }",
+            "    }",
+            "  }",
+            "}",
+            "mcp_put $f marker create_clock $mcp_xdc_has_create_clock",
+            "mcp_put $f marker set_false_path $mcp_xdc_has_false_path",
+            "mcp_put $f marker set_input_delay $mcp_xdc_has_input_delay",
+            "mcp_put $f marker set_output_delay $mcp_xdc_has_output_delay",
+            "mcp_put $f marker get_ports $mcp_xdc_has_get_ports",
+            "mcp_put $f marker set_clock_groups $mcp_xdc_has_clock_groups",
+            "if {$mcp_xdc_has_input_delay && !$mcp_xdc_has_create_clock} {",
+            "  mcp_put $f warning no_create_clock_but_has_input_delay",
+            "}",
+            "if {$mcp_xdc_has_false_path && !$mcp_xdc_has_create_clock} {",
+            "  mcp_put $f warning no_create_clock_but_has_false_path",
+            "}",
+            "close $f",
+            f"return \"constraint_diag={out_string}\"",
         ]
     )

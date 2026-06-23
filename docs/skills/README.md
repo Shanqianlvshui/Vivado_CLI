@@ -8,6 +8,7 @@ Suggested resource URIs:
 - `vivado://skills/gui-session`
 - `vivado://skills/project-build-flow`
 - `vivado://skills/block-design-flow`
+- `vivado://skills/fileset-constraint-flow`
 - `vivado://skills/official-docs-reference`
 - `vivado://skills/raw-tcl-expert`
 - `vivado://official-docs/index`

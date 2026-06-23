@@ -15,6 +15,7 @@ def test_lists_builtin_skills() -> None:
         "gui-session",
         "project-build-flow",
         "block-design-flow",
+        "fileset-constraint-flow",
         "official-docs-reference",
         "raw-tcl-expert",
     }

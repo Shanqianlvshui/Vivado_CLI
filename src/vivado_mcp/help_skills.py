@@ -36,6 +36,12 @@ SKILLS: tuple[Skill, ...] = (
         filename="block-design-flow.md",
     ),
     Skill(
+        skill_id="fileset-constraint-flow",
+        title="Fileset, Source, and Constraint Workflow",
+        summary="Manage Vivado filesets, source properties, top module, and XDC loading order before complex builds.",
+        filename="fileset-constraint-flow.md",
+    ),
+    Skill(
         skill_id="official-docs-reference",
         title="Official Docs Reference",
         summary="Use packaged AMD official Vivado documentation metadata as the authority layer for AI guidance.",

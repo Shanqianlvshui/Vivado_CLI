@@ -21,6 +21,8 @@ Current design documents:
 - Submit raw Tcl to a managed session when trusted-local expert mode is enabled.
 - Create or open project-mode Vivado projects.
 - Add RTL/source/constraint files with path validation.
+- Manage Vivado filesets (sources / simulation / constraint sets) including include directories, defines, libraries, file properties, top module, and USED_IN scopes.
+- Audit XDC constraint filesets: loading order, USED_IN scopes, methodology markers, and basic UG903/UG949 sanity warnings.
 - Create, inspect, mutate, validate, and generate generic IP Integrator block designs.
 - Run synthesis, implementation, and bitstream generation.
 - Generate timing, utilization, DRC, and message reports.
@@ -145,6 +147,13 @@ After connecting the MCP client, use this sequence:
 - `vivado_create_project`
 - `vivado_open_project`
 - `vivado_add_sources`
+- `vivado_remove_sources`
+- `vivado_set_file_properties`
+- `vivado_set_top`
+- `vivado_list_filesets`
+- `vivado_create_fileset`
+- `vivado_describe_fileset`
+- `vivado_constraint_diagnostics`
 - `vivado_bd_open_or_create`
 - `vivado_bd_summary`
 - `vivado_bd_apply`

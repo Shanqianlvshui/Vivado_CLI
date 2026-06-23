@@ -339,6 +339,13 @@ class VivadoSessionManager:
         sources: list[str] | None = None,
         constraints: list[str] | None = None,
         top: str | None = None,
+        sources_fileset: str | None = None,
+        include_dirs: list[str] | None = None,
+        defines: list[str] | None = None,
+        library: str | None = None,
+        file_type: str | None = None,
+        used_in: list[str] | None = None,
+        processing_order: int | None = None,
         timeout_seconds: int = 120,
     ) -> dict[str, object]:
         from .tcl import add_sources_tcl
@@ -347,13 +354,189 @@ class VivadoSessionManager:
         constraint_paths = [
             self.path_policy.require_under_roots(path, label="constraint", must_exist=True) for path in constraints or []
         ]
+        include_paths = [
+            self.path_policy.require_under_roots(path, label="include_dir", must_exist=False) for path in include_dirs or []
+        ]
         running = self._get(session_ref)
         result = self._submit_tcl(
             running,
-            add_sources_tcl(sources=source_paths, constraints=constraint_paths, top=top),
+            add_sources_tcl(
+                sources=source_paths,
+                constraints=constraint_paths,
+                top=top,
+                sources_fileset=sources_fileset,
+                include_dirs=include_paths,
+                defines=defines,
+                library=library,
+                file_type=file_type,
+                used_in=used_in,
+                processing_order=processing_order,
+            ),
             timeout_seconds=timeout_seconds,
         )
         return _result_to_dict(result, expect_destructive=False)
+
+    def remove_sources(
+        self,
+        *,
+        session_ref: str,
+        paths: list[str],
+        fileset: str | None = None,
+        force: bool = False,
+        timeout_seconds: int = 120,
+    ) -> dict[str, object]:
+        from .tcl import remove_files_tcl
+
+        if not paths:
+            raise ValueError("paths must contain at least one source to remove")
+        resolved = [self.path_policy.require_under_roots(path, label="source", must_exist=True) for path in paths]
+        running = self._get(session_ref)
+        result = self._submit_tcl(
+            running,
+            remove_files_tcl(paths=resolved, fileset=fileset, force=force),
+            timeout_seconds=timeout_seconds,
+        )
+        return _result_to_dict(result, expect_destructive=True)
+
+    def set_file_properties(
+        self,
+        *,
+        session_ref: str,
+        paths: list[str],
+        properties: dict[str, object],
+        fileset: str | None = None,
+        timeout_seconds: int = 60,
+    ) -> dict[str, object]:
+        from .tcl import set_file_properties_tcl
+
+        if not paths:
+            raise ValueError("paths must contain at least one file")
+        if not properties:
+            raise ValueError("properties must contain at least one key/value pair")
+        resolved = [self.path_policy.require_under_roots(path, label="file", must_exist=True) for path in paths]
+        running = self._get(session_ref)
+        result = self._submit_tcl(
+            running,
+            set_file_properties_tcl(paths=resolved, properties=properties, fileset=fileset),
+            timeout_seconds=timeout_seconds,
+        )
+        return _result_to_dict(result, expect_destructive=True)
+
+    def set_top(
+        self,
+        *,
+        session_ref: str,
+        top: str | None = None,
+        fileset: str | None = None,
+        timeout_seconds: int = 60,
+    ) -> dict[str, object]:
+        from .tcl import set_top_tcl
+
+        running = self._get(session_ref)
+        result = self._submit_tcl(
+            running,
+            set_top_tcl(top=top, fileset=fileset),
+            timeout_seconds=timeout_seconds,
+        )
+        return _result_to_dict(result, expect_destructive=top is not None)
+
+    def list_filesets(
+        self,
+        *,
+        session_ref: str,
+        timeout_seconds: int = 60,
+    ) -> dict[str, object]:
+        from .fileset_summary import parse_list_filesets
+        from .tcl import list_filesets_tcl
+
+        running = self._get(session_ref)
+        summaries_dir = running.record.session_dir / "summaries"
+        summaries_dir.mkdir(parents=True, exist_ok=True)
+        output_path = summaries_dir / f"filesets_{uuid.uuid4().hex[:8]}.tsv"
+        raw_result = self._submit_tcl(
+            running,
+            list_filesets_tcl(output_path),
+            timeout_seconds=timeout_seconds,
+        )
+        result = _result_to_dict(raw_result, expect_destructive=False)
+        result["summary_path"] = str(output_path)
+        result["summary_artifact_uri"] = artifact_uri(session_ref, output_path.relative_to(running.record.session_dir).as_posix())
+        if output_path.exists():
+            result["filesets"] = parse_list_filesets(output_path)
+        return result
+
+    def create_fileset(
+        self,
+        *,
+        session_ref: str,
+        name: str,
+        kind: str = "constrs",
+        timeout_seconds: int = 120,
+    ) -> dict[str, object]:
+        from .tcl import create_fileset_tcl
+
+        if not name.strip():
+            raise ValueError("fileset name must not be empty")
+        running = self._get(session_ref)
+        result = self._submit_tcl(
+            running,
+            create_fileset_tcl(name=name, kind=kind),
+            timeout_seconds=timeout_seconds,
+        )
+        return _result_to_dict(result, expect_destructive=True)
+
+    def describe_fileset(
+        self,
+        *,
+        session_ref: str,
+        name: str,
+        timeout_seconds: int = 60,
+    ) -> dict[str, object]:
+        from .fileset_summary import parse_describe_fileset
+        from .tcl import describe_fileset_tcl
+
+        if not name.strip():
+            raise ValueError("fileset name must not be empty")
+        running = self._get(session_ref)
+        summaries_dir = running.record.session_dir / "summaries"
+        summaries_dir.mkdir(parents=True, exist_ok=True)
+        output_path = summaries_dir / f"fileset_desc_{uuid.uuid4().hex[:8]}.tsv"
+        raw_result = self._submit_tcl(
+            running,
+            describe_fileset_tcl(output_path, name=name),
+            timeout_seconds=timeout_seconds,
+        )
+        result = _result_to_dict(raw_result, expect_destructive=False)
+        result["summary_path"] = str(output_path)
+        result["summary_artifact_uri"] = artifact_uri(session_ref, output_path.relative_to(running.record.session_dir).as_posix())
+        if output_path.exists():
+            result["fileset_summary"] = parse_describe_fileset(output_path)
+        return result
+
+    def constraint_diagnostics(
+        self,
+        *,
+        session_ref: str,
+        timeout_seconds: int = 120,
+    ) -> dict[str, object]:
+        from .fileset_summary import parse_constraint_diagnostics
+        from .tcl import constraint_diagnostics_tcl
+
+        running = self._get(session_ref)
+        summaries_dir = running.record.session_dir / "summaries"
+        summaries_dir.mkdir(parents=True, exist_ok=True)
+        output_path = summaries_dir / f"constraint_diag_{uuid.uuid4().hex[:8]}.tsv"
+        raw_result = self._submit_tcl(
+            running,
+            constraint_diagnostics_tcl(output_path),
+            timeout_seconds=timeout_seconds,
+        )
+        result = _result_to_dict(raw_result, expect_destructive=False)
+        result["summary_path"] = str(output_path)
+        result["summary_artifact_uri"] = artifact_uri(session_ref, output_path.relative_to(running.record.session_dir).as_posix())
+        if output_path.exists():
+            result["diagnostics"] = parse_constraint_diagnostics(output_path)
+        return result
 
     def bd_open_or_create(
         self,
