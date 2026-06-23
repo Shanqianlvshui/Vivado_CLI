@@ -66,15 +66,24 @@ def parse_describe_fileset(path: Path) -> dict[str, object]:
             if len(parts) >= 3:
                 properties[parts[1]] = parts[2]
         elif key == "file":
+            synth_enabled = parts[5] == "1" if len(parts) > 5 else False
+            sim_enabled = parts[6] == "1" if len(parts) > 6 else False
+            impl_enabled = parts[7] == "1" if len(parts) > 7 else False
             files.append(
                 {
                     "path": parts[1] if len(parts) > 1 else "",
                     "file_type": parts[2] if len(parts) > 2 else "",
                     "library": parts[3] if len(parts) > 3 else "",
                     "processing_order": int(parts[4]) if len(parts) > 4 and parts[4].isdigit() else 0,
-                    "is_enabled_synthesis": parts[5] == "1" if len(parts) > 5 else False,
-                    "is_enabled_simulation": parts[6] == "1" if len(parts) > 6 else False,
-                    "is_enabled_implementation": parts[7] == "1" if len(parts) > 7 else False,
+                    "is_enabled_synthesis": synth_enabled,
+                    "is_enabled_simulation": sim_enabled,
+                    "is_enabled_implementation": impl_enabled,
+                    "used_in": _used_in(synth_enabled, sim_enabled, impl_enabled),
+                    "active_in": {
+                        "synthesis": synth_enabled,
+                        "simulation": sim_enabled,
+                        "implementation": impl_enabled,
+                    },
                 }
             )
     return {
@@ -135,6 +144,7 @@ def parse_constraint_diagnostics(path: Path) -> dict[str, object]:
                         "set_input_delay": _to_int(parts[5] if len(parts) > 5 else "0"),
                         "set_output_delay": _to_int(parts[6] if len(parts) > 6 else "0"),
                         "set_clock_groups": _to_int(parts[7] if len(parts) > 7 else "0"),
+                        "create_generated_clock": _to_int(parts[8] if len(parts) > 8 else "0"),
                     }
                 )
         elif key == "warning":
@@ -175,23 +185,24 @@ def analyze_source_audit(
 
     duplicates = sorted(path for path, count in _counts(project_paths).items() if path and count > 1)
     if duplicates:
-        issues.append({"issue_id": "file.duplicate", "severity": "medium", "paths": duplicates})
+        issues.append(_issue("duplicate.source_path", "medium", paths=duplicates, legacy_issue_id="file.duplicate"))
 
     top = str(project.get("top") or _first_non_empty(desc.get("properties", {}).get("TOP") for desc in described_filesets) or "")
     if top and source_files and not _top_name_appears_in_sources(top, source_files):
         issues.append(
-            {
-                "issue_id": "top.not_found_in_files",
-                "severity": "high",
-                "confidence": "heuristic",
-                "top": top,
-                "checked_files": [file.get("path") for file in source_files],
-                "detail": "No source filename stem matched the top name; this does not parse HDL module declarations.",
-            }
+            _issue(
+                "top.not_found",
+                "high",
+                legacy_issue_id="top.not_found_in_files",
+                confidence="heuristic",
+                top=top,
+                checked_files=[file.get("path") for file in source_files],
+                detail="No source filename stem matched the top name; this does not parse HDL module declarations.",
+            )
         )
 
     if xdc_in_source:
-        issues.append({"issue_id": "constraint.in_source_fileset", "severity": "medium", "files": xdc_in_source})
+        issues.append(_issue("xdc.in_wrong_fileset", "medium", legacy_issue_id="constraint.in_source_fileset", files=xdc_in_source))
 
     disabled_synth = [
         {"path": file.get("path"), "fileset": _fileset_for_file(file, described_filesets)}
@@ -199,17 +210,17 @@ def analyze_source_audit(
         if file.get("is_enabled_synthesis") is False
     ]
     if disabled_synth:
-        issues.append({"issue_id": "source.disabled_for_synthesis", "severity": "high", "files": disabled_synth})
+        issues.append(_issue("source.disabled_for_synthesis", "high", files=disabled_synth))
 
     markers = constraints.get("xdc_markers") if isinstance(constraints.get("xdc_markers"), dict) else {}
     if constraints.get("has_project") is not False and int(markers.get("create_clock", 0) or 0) == 0:
-        issues.append({"issue_id": "constraints.no_create_clock", "severity": "medium"})
+        issues.append(_issue("constraint.no_create_clock", "medium", legacy_issue_id="constraints.no_create_clock"))
 
     constraint_paths = {str(row.get("path") or "") for row in _list_dicts(constraints.get("constraint_files"))}
     project_xdc_paths = {str(row.get("path") or "") for row in project_files if _is_xdc_file(str(row.get("file_type") or ""), str(row.get("path") or ""))}
     missing_from_constraints = sorted(path for path in project_xdc_paths if path and path not in constraint_paths)
     if missing_from_constraints:
-        issues.append({"issue_id": "constraint.not_in_constraint_set", "severity": "medium", "paths": missing_from_constraints})
+        issues.append(_issue("xdc.not_in_constraint_set", "medium", legacy_issue_id="constraint.not_in_constraint_set", paths=missing_from_constraints))
 
     return {
         "ok": not any(issue["severity"] in {"high"} for issue in issues),
@@ -222,7 +233,8 @@ def analyze_source_audit(
             "constraint_file_count": len(constraint_paths),
             "top": top,
         },
-        "issues": issues,
+        "issues": _with_legacy_aliases(issues),
+        "recommendations": _source_audit_recommendations(issues),
         "suggested_next_tools": ["vivado_fileset_apply", "vivado_constraint_set_apply", "vivado_xdc_order_check"],
     }
 
@@ -241,7 +253,14 @@ def analyze_xdc_order(diagnostics: dict[str, object]) -> dict[str, object]:
         rows.sort(key=lambda row: int(row.get("order") or 0))
         first_clock_order = next((int(row.get("order") or 0) for row in rows if int(row.get("create_clock") or 0)), None)
         if first_clock_order is None and rows:
-            issues.append({"issue_id": "xdc.no_create_clock_in_fileset", "severity": "medium", "fileset": fileset})
+            issues.append(
+                {
+                    "issue_id": "xdc.no_create_clock_in_fileset",
+                    "severity": "medium",
+                    "fileset": fileset,
+                    "suggestion": "Add or move a create_clock constraint before timing exceptions and I/O delays.",
+                }
+            )
             continue
         if first_clock_order is None:
             continue
@@ -257,22 +276,113 @@ def analyze_xdc_order(diagnostics: dict[str, object]) -> dict[str, object]:
                         "path": row.get("path"),
                         "order": order,
                         "first_clock_order": first_clock_order,
+                        "suggestion": "Move clock definition XDC files before exception or I/O delay XDC files.",
                     }
                 )
 
     for warning in diagnostics.get("warnings", []) if isinstance(diagnostics.get("warnings"), list) else []:
         issues.append({"issue_id": f"diagnostic.{warning}", "severity": "medium", "warning": warning})
+    reorder_plan = _xdc_reorder_plan(by_fileset)
+    actions = [
+        {
+            "tool": "vivado_constraint_set_apply",
+            "action": "reorder",
+            "fileset": fileset,
+            "reorder": paths,
+            "why": "Place XDC files with clock definitions before exceptions, I/O delays, and pin-only constraints.",
+        }
+        for fileset, paths in reorder_plan.items()
+        if paths
+    ]
 
     return {
         "ok": not any(issue["severity"] == "high" for issue in issues),
         "filesets": by_fileset,
         "issues": issues,
+        "reorder_plan": reorder_plan,
+        "actions": actions,
         "suggested_next_tools": ["vivado_constraint_set_apply", "vivado_search_official_docs"],
     }
 
 
 def _to_int(value: str) -> int:
     return int(value) if str(value).lstrip("-").isdigit() else 0
+
+
+def _used_in(synthesis: bool, simulation: bool, implementation: bool) -> list[str]:
+    scopes = []
+    if synthesis:
+        scopes.append("synthesis")
+    if simulation:
+        scopes.append("simulation")
+    if implementation:
+        scopes.append("implementation")
+    return scopes
+
+
+def _issue(issue_id: str, severity: str, *, legacy_issue_id: str | None = None, **fields: object) -> dict[str, object]:
+    row: dict[str, object] = {"issue_id": issue_id, "severity": severity}
+    if legacy_issue_id:
+        row["legacy_issue_id"] = legacy_issue_id
+    row.update(fields)
+    return row
+
+
+def _with_legacy_aliases(issues: list[dict[str, object]]) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for issue in issues:
+        rows.append(issue)
+        legacy = issue.get("legacy_issue_id")
+        if isinstance(legacy, str) and legacy:
+            alias = dict(issue)
+            alias["issue_id"] = legacy
+            alias["canonical_issue_id"] = issue.get("issue_id")
+            rows.append(alias)
+    return rows
+
+
+def _source_audit_recommendations(issues: list[dict[str, object]]) -> list[dict[str, str]]:
+    recommendations: list[dict[str, str]] = []
+
+    def add(tool: str, why: str) -> None:
+        if not any(row["tool"] == tool for row in recommendations):
+            recommendations.append({"tool": tool, "why": why})
+
+    issue_ids = {str(issue.get("issue_id")) for issue in issues}
+    if {"top.not_found", "source.disabled_for_synthesis", "duplicate.source_path"} & issue_ids:
+        add("vivado_describe_fileset", "Inspect source fileset files, top, library, processing order, and USED_IN flags.")
+        add("vivado_fileset_apply", "Fix top, include directories, defines, or fileset properties through a structured tool.")
+    if {"xdc.in_wrong_fileset", "xdc.not_in_constraint_set", "constraint.no_create_clock"} & issue_ids:
+        add("vivado_constraint_set_apply", "Move XDC files into constraint sets or adjust constraint USED_IN scopes.")
+        add("vivado_xdc_order_check", "Check XDC order after constraint set changes.")
+    if not recommendations:
+        add("vivado_project_summary", "Project source/fileset audit did not find high-priority issues; refresh project state as needed.")
+    return recommendations
+
+
+def _xdc_reorder_plan(by_fileset: dict[str, list[dict[str, object]]]) -> dict[str, list[str]]:
+    plan: dict[str, list[str]] = {}
+    for fileset, rows in by_fileset.items():
+        if not rows:
+            continue
+        ordered = sorted(rows, key=lambda row: (_xdc_priority(row), int(row.get("order") or 0), str(row.get("path") or "")))
+        paths = [str(row.get("path") or "") for row in ordered if row.get("path")]
+        original = [str(row.get("path") or "") for row in rows if row.get("path")]
+        if paths and paths != original:
+            plan[fileset] = paths
+    return plan
+
+
+def _xdc_priority(row: dict[str, object]) -> int:
+    if int(row.get("create_clock") or 0):
+        return 0
+    if int(row.get("create_generated_clock") or 0):
+        return 1
+    if any(int(row.get(key) or 0) for key in ("set_input_delay", "set_output_delay")):
+        return 2
+    if any(int(row.get(key) or 0) for key in ("set_false_path", "set_clock_groups")):
+        return 3
+    return 4
 
 
 def _list_dicts(value: object) -> list[dict[str, object]]:

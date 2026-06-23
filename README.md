@@ -21,7 +21,7 @@ Current design documents:
 - Submit raw Tcl to a managed session when trusted-local expert mode is enabled.
 - Create or open project-mode Vivado projects.
 - Add RTL/source/constraint files with path validation.
-- Audit and manage Vivado filesets (sources / simulation / constraint sets) including include directories, defines, libraries, file properties, top module, and USED_IN scopes.
+- Audit and manage Vivado filesets (sources / simulation / constraint sets) including include directories, defines, libraries, file properties, top module, USED_IN scopes, dry-run plans, and XDC reorder suggestions.
 - Apply structured source-fileset and constraint-set changes with optional before/after state diffs.
 - Audit XDC constraint filesets: loading order, per-file command markers, USED_IN scopes, methodology markers, and basic UG903/UG949 sanity warnings.
 - Search, create, inspect, upgrade, and generate output products for Vivado project IP.

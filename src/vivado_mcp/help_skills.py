@@ -211,7 +211,7 @@ def help_topic(topic: str | None = None) -> dict[str, object]:
     }:
         return {
             "topic": "fileset_constraint_flow",
-            "summary": "Audit and manage Vivado filesets, source settings, top module, constraint sets, and XDC loading order with structured tools before expert Tcl.",
+            "summary": "Audit and manage Vivado filesets, source settings, top module, constraint sets, XDC loading order, dry-run plans, and reorder suggestions before expert Tcl.",
             "recommended_tools": [
                 "vivado_source_audit",
                 "vivado_list_filesets",

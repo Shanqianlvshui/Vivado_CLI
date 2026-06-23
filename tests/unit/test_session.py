@@ -657,6 +657,19 @@ def test_fileset_and_source_workflow_returns_structured_state(tmp_path: Path) ->
     assert applied_fileset["result"] == "fileset_applied"
     assert applied_fileset["state_diff"]["ok"] is True
 
+    dry_fileset = manager.fileset_apply(
+        session_ref=session_ref,
+        fileset="sources_1",
+        include_dirs=[str(tmp_path / "include")],
+        defines=["DEBUG=1"],
+        top="alu",
+        timeout_seconds=5,
+        dry_run=True,
+    )
+    assert dry_fileset["dry_run"] is True
+    assert dry_fileset["plan"]["actions"][0]["action"] == "set_include_dirs"
+    assert dry_fileset["plan"]["would_execute_tcl"] is True
+
     applied_constraints = manager.constraint_set_apply(
         session_ref=session_ref,
         fileset="constrs_extra",
@@ -671,6 +684,18 @@ def test_fileset_and_source_workflow_returns_structured_state(tmp_path: Path) ->
     assert applied_constraints["ok"] is True
     assert applied_constraints["result"] == "constraint_set_applied"
     assert applied_constraints["state_diff"]["ok"] is True
+
+    dry_constraints = manager.constraint_set_apply(
+        session_ref=session_ref,
+        fileset="constrs_extra",
+        add=[str(timing_xdc)],
+        reorder=[str(timing_xdc)],
+        timeout_seconds=5,
+        dry_run=True,
+    )
+    assert dry_constraints["dry_run"] is True
+    assert dry_constraints["plan"]["actions"][0]["action"] == "add_xdc"
+    assert dry_constraints["plan"]["recommendations"][0]["tool"] == "vivado_xdc_order_check"
 
     manager.stop_session(session_ref, timeout_seconds=5)
 

@@ -27,18 +27,22 @@ blocking a build.
    non-default fileset.
 4. Apply source-fileset settings with `vivado_fileset_apply`. Use it for
    include directories, defines, top module, and fileset-level properties.
-   Pass `capture_diff=true` for anything that changes project state.
+   Pass `dry_run=true` first on complex projects, then `capture_diff=true`
+   when applying anything that changes project state.
 5. Apply constraint-set changes with `vivado_constraint_set_apply`. Use it
    to create extra constraint sets, add/remove XDC files, set USED_IN scopes,
    reorder XDC loading order, and make a constraint set active. Pass
-   `capture_diff=true` for before/after summary and diff artifacts.
+   `dry_run=true` to review the plan and `capture_diff=true` for
+   before/after summary and diff artifacts.
 6. For per-file overrides that are not covered by the structured apply tools,
    call `vivado_set_file_properties`. Always pass `fileset="..."` when the
    same file is included by more than one fileset so the right scope is
    updated.
 7. Before building, call `vivado_xdc_order_check`. It reports XDC files in
    loading order and flags false paths, clock groups, and I/O delay
-   constraints that appear before any clock definition in the same set.
+   constraints that appear before any clock definition in the same set. Use
+   its `reorder_plan` and `actions` as the draft for
+   `vivado_constraint_set_apply`.
 8. If you need the raw evidence, call `vivado_constraint_diagnostics` and
    inspect `constrs_filesets`, `constraint_files`, `xdc_markers`,
    `xdc_file_markers`, and `warnings`.
@@ -57,6 +61,9 @@ blocking a build.
 - Prefer `vivado_fileset_apply` and `vivado_constraint_set_apply` over raw
   Tcl for source and constraint setup. Use expert Tcl only when the
   structured tools do not cover the operation.
+- Use dry-run plans before applying broad include/define/top or XDC reorder
+  changes. A dry run validates paths and returns the intended structured
+  actions without executing Tcl.
 - Vivado evaluates constraint fileset USED_IN flags before XDC processing
   order matters. Check that every constraint set has
   `IS_ENABLED_IMPLEMENTATION=1` when implementation is failing on a

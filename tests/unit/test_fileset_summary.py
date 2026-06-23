@@ -58,6 +58,8 @@ def test_parse_describe_fileset_returns_files_and_properties(tmp_path: Path) -> 
     assert len(parsed["files"]) == 2
     assert parsed["files"][0]["library"] == "xil_defaultlib"
     assert parsed["files"][1]["processing_order"] == 1
+    assert parsed["files"][0]["used_in"] == ["synthesis", "simulation", "implementation"]
+    assert parsed["files"][0]["active_in"]["synthesis"] is True
 
 
 def test_parse_constraint_diagnostics_sorts_files_by_fileset_and_order(tmp_path: Path) -> None:
@@ -71,6 +73,7 @@ def test_parse_constraint_diagnostics_sorts_files_by_fileset_and_order(tmp_path:
                 "constraint_file\tconstrs_1\t1\tC:/fake/pinout.xdc\tXDC",
                 "constraint_file\tconstrs_1\t0\tC:/fake/timing.xdc\tXDC",
                 "marker\tcreate_clock\t1",
+                "marker\tcreate_generated_clock\t0",
                 "marker\tset_input_delay\t1",
                 "marker\tset_output_delay\t1",
                 "marker\tget_ports\t1",
@@ -86,6 +89,7 @@ def test_parse_constraint_diagnostics_sorts_files_by_fileset_and_order(tmp_path:
     orders = [row["order"] for row in parsed["constraint_files"]]
     assert orders == [0, 1]
     assert parsed["xdc_markers"]["create_clock"] == 1
+    assert parsed["xdc_markers"]["create_generated_clock"] == 0
     assert parsed["xdc_markers"]["set_input_delay"] == 1
     assert parsed["warnings"] == ["no_create_clock_but_has_input_delay"]
 
@@ -145,9 +149,11 @@ def test_analyze_source_audit_flags_missing_top_duplicates_and_scope() -> None:
     issue_ids = {issue["issue_id"] for issue in audit["issues"]}
     issues_by_id = {issue["issue_id"]: issue for issue in audit["issues"]}
     assert audit["ok"] is False
+    assert {"top.not_found", "duplicate.source_path", "xdc.in_wrong_fileset", "constraint.no_create_clock"}.issubset(issue_ids)
     assert {"top.not_found_in_files", "file.duplicate", "constraint.in_source_fileset", "constraints.no_create_clock"}.issubset(issue_ids)
-    assert issues_by_id["top.not_found_in_files"]["confidence"] == "heuristic"
+    assert issues_by_id["top.not_found"]["confidence"] == "heuristic"
     assert audit["summary"]["fileset_count"] == 2
+    assert any(rec["tool"] == "vivado_fileset_apply" for rec in audit["recommendations"])
 
 
 def test_analyze_xdc_order_flags_constraints_before_clocks() -> None:
@@ -169,3 +175,6 @@ def test_analyze_xdc_order_flags_constraints_before_clocks() -> None:
     assert order["ok"] is False
     assert order["filesets"]["constrs_1"][0]["path"].endswith("exceptions.xdc")
     assert order["issues"][0]["issue_id"] == "xdc.exception_before_clock"
+    assert order["reorder_plan"]["constrs_1"] == ["C:/fake/clocks.xdc", "C:/fake/exceptions.xdc"]
+    assert order["actions"][0]["action"] == "reorder"
+    assert "vivado_constraint_set_apply" in order["actions"][0]["tool"]

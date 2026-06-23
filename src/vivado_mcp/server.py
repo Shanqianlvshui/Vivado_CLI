@@ -373,6 +373,7 @@ def vivado_fileset_apply(
     update_compile_order: bool = True,
     timeout_seconds: int = 120,
     capture_diff: bool = False,
+    dry_run: bool = False,
 ) -> dict[str, object]:
     """Apply common fileset-level source settings: include dirs, defines, top, and properties."""
     return manager.fileset_apply(
@@ -385,6 +386,7 @@ def vivado_fileset_apply(
         update_compile_order=update_compile_order,
         timeout_seconds=timeout_seconds,
         capture_diff=capture_diff,
+        dry_run=dry_run,
     )
 
 
@@ -400,6 +402,7 @@ def vivado_constraint_set_apply(
     active: bool | None = None,
     timeout_seconds: int = 120,
     capture_diff: bool = False,
+    dry_run: bool = False,
 ) -> dict[str, object]:
     """Create/update a constraint fileset: add/remove XDC, set USED_IN scopes, reorder, or activate."""
     return manager.constraint_set_apply(
@@ -413,6 +416,7 @@ def vivado_constraint_set_apply(
         active=active,
         timeout_seconds=timeout_seconds,
         capture_diff=capture_diff,
+        dry_run=dry_run,
     )
 
 

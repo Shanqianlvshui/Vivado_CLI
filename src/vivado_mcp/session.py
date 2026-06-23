@@ -745,13 +745,31 @@ class VivadoSessionManager:
         update_compile_order: bool = True,
         timeout_seconds: int = 120,
         capture_diff: bool = False,
+        dry_run: bool = False,
     ) -> dict[str, object]:
         from .tcl import fileset_apply_tcl
 
-        include_paths = [
-            self.path_policy.require_under_roots(path, label="include_dir", must_exist=False) for path in include_dirs or []
-        ]
+        include_paths = (
+            None
+            if include_dirs is None
+            else [self.path_policy.require_under_roots(path, label="include_dir", must_exist=False) for path in include_dirs]
+        )
         running = self._get(session_ref)
+        if dry_run:
+            return {
+                "ok": True,
+                "session_ref": session_ref,
+                "dry_run": True,
+                "expect_destructive": True,
+                "plan": _fileset_apply_plan(
+                    fileset=fileset,
+                    include_dirs=include_paths,
+                    defines=defines,
+                    top=top,
+                    properties=properties,
+                    update_compile_order=update_compile_order,
+                ),
+            }
         return self._capture_diff_around(
             running=running,
             label="fileset_apply",
@@ -787,6 +805,7 @@ class VivadoSessionManager:
         active: bool | None = None,
         timeout_seconds: int = 120,
         capture_diff: bool = False,
+        dry_run: bool = False,
     ) -> dict[str, object]:
         from .tcl import constraint_set_apply_tcl
 
@@ -794,6 +813,22 @@ class VivadoSessionManager:
         remove_paths = [self.path_policy.require_under_roots(path, label="constraint", must_exist=True) for path in remove or []]
         reorder_paths = [self.path_policy.require_under_roots(path, label="constraint", must_exist=True) for path in reorder or []]
         running = self._get(session_ref)
+        if dry_run:
+            return {
+                "ok": True,
+                "session_ref": session_ref,
+                "dry_run": True,
+                "expect_destructive": True,
+                "plan": _constraint_set_apply_plan(
+                    fileset=fileset,
+                    create_if_missing=create_if_missing,
+                    add=add_paths,
+                    remove=remove_paths,
+                    used_in=used_in,
+                    reorder=reorder_paths,
+                    active=active,
+                ),
+            }
         return self._capture_diff_around(
             running=running,
             label="constraint_set_apply",
@@ -2087,6 +2122,75 @@ def _report_type_from_artifact(path: Path) -> str:
     if "timing" in name:
         return "timing"
     return ""
+
+
+def _fileset_apply_plan(
+    *,
+    fileset: str,
+    include_dirs: list[Path] | None,
+    defines: list[str] | None,
+    top: str | None,
+    properties: dict[str, object] | None,
+    update_compile_order: bool,
+) -> dict[str, object]:
+    actions: list[dict[str, object]] = []
+    if include_dirs is not None:
+        actions.append({"action": "set_include_dirs", "fileset": fileset, "paths": [str(path) for path in include_dirs]})
+    if defines:
+        actions.append({"action": "set_defines", "fileset": fileset, "defines": defines})
+    if top:
+        actions.append({"action": "set_top", "fileset": fileset, "top": top})
+    if properties:
+        actions.append({"action": "set_properties", "fileset": fileset, "properties": properties})
+    if update_compile_order:
+        actions.append({"action": "update_compile_order", "fileset": fileset})
+    return {
+        "operation": "fileset_apply",
+        "fileset": fileset,
+        "actions": actions,
+        "risk_level": "medium" if actions else "low",
+        "would_execute_tcl": bool(actions),
+        "recommendations": [
+            {"tool": "vivado_describe_fileset", "why": "Inspect fileset state before applying the planned changes."},
+            {"tool": "vivado_source_audit", "why": "Run source audit after applying fileset changes."},
+        ],
+    }
+
+
+def _constraint_set_apply_plan(
+    *,
+    fileset: str,
+    create_if_missing: bool,
+    add: list[Path],
+    remove: list[Path],
+    used_in: list[str] | None,
+    reorder: list[Path],
+    active: bool | None,
+) -> dict[str, object]:
+    actions: list[dict[str, object]] = []
+    if create_if_missing:
+        actions.append({"action": "create_fileset", "fileset": fileset, "kind": "constrs"})
+    if add:
+        actions.append({"action": "add_xdc", "fileset": fileset, "paths": [str(path) for path in add]})
+    if remove:
+        actions.append({"action": "remove_xdc", "fileset": fileset, "paths": [str(path) for path in remove]})
+    if used_in is not None:
+        actions.append({"action": "set_used_in", "fileset": fileset, "used_in": used_in})
+    if reorder:
+        actions.append({"action": "reorder_xdc", "fileset": fileset, "paths": [str(path) for path in reorder]})
+    if active is not None:
+        actions.append({"action": "set_active_constraint_set", "fileset": fileset, "active": active})
+    return {
+        "operation": "constraint_set_apply",
+        "fileset": fileset,
+        "actions": actions,
+        "risk_level": "high" if remove else "medium" if actions else "low",
+        "would_execute_tcl": bool(actions),
+        "recommendations": [
+            {"tool": "vivado_xdc_order_check", "why": "Check XDC order before and after applying constraint changes."},
+            {"tool": "vivado_source_audit", "why": "Audit source and constraint placement after applying changes."},
+        ],
+    }
 
 
 def _resolve_ip_vlnv(
