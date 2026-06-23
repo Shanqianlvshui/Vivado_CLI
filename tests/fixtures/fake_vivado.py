@@ -68,6 +68,34 @@ def _result_for(body: str) -> str:
         return "project_created=fake"
     if "open_project" in body:
         return "project_opened=fake"
+    bd_summary_match = re.search(r"set mcp_bd_summary_file \{([^}]+)\}", body)
+    if bd_summary_match:
+        path = Path(bd_summary_match.group(1))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "\n".join(
+                [
+                    "has_block_design\t1",
+                    "current_bd_design\tdesign_1",
+                    "block_design\tC:/fake/design_1.bd",
+                    "cell\t/axi_gpio_0\tip\txilinx.com:ip:axi_gpio:2.0",
+                    "port\t/gpio_tri_o\tO\tdata\t31\t0",
+                    "net\t/net_gpio\t/axi_gpio_0/gpio_io_o,/gpio_tri_o",
+                    "validation\t0\t",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        return f"bd_summary={path}"
+    if "bd_actions_applied=" in body or "create_bd_cell" in body:
+        return "bd_actions_applied=1 current_bd_design=design_1"
+    if "bd_validated=" in body or "validate_bd_design" in body:
+        return "bd_validated=design_1"
+    if "generate_target" in body:
+        return "bd_generated=C:/fake/design_1.bd wrapper=C:/fake/design_1_wrapper.v"
+    if "create_bd_design" in body or "open_bd_design" in body:
+        return "bd_design=design_1"
     if "launch_runs" in body:
         return "status=complete"
     summary_match = re.search(r"set mcp_summary_file \{([^}]+)\}", body)

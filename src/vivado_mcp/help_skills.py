@@ -30,6 +30,12 @@ SKILLS: tuple[Skill, ...] = (
         filename="project-build-flow.md",
     ),
     Skill(
+        skill_id="block-design-flow",
+        title="Block Design Flow",
+        summary="Create, inspect, validate, and generate generic Vivado IP Integrator block designs.",
+        filename="block-design-flow.md",
+    ),
+    Skill(
         skill_id="raw-tcl-expert",
         title="Raw Tcl Expert Mode",
         summary="Use trusted-local raw Tcl for full Vivado freedom with command/result artifacts.",
@@ -97,6 +103,19 @@ def help_topic(topic: str | None = None) -> dict[str, object]:
             "summary": "Use project workflow tools for repeatable Vivado operations before falling back to raw Tcl.",
             "recommended_tools": ["vivado_create_project", "vivado_add_sources", "vivado_run_synthesis", "vivado_report"],
             "related_resources": ["vivado://skills/project-build-flow"],
+        }
+    if normalized in {"bd", "block-design", "block-design-flow", "ip-integrator", "ipi"}:
+        return {
+            "topic": "block_design_flow",
+            "summary": "Use generic IP Integrator tools to create/open BD designs, apply actions, validate, summarize, and generate wrapper outputs.",
+            "recommended_tools": [
+                "vivado_bd_open_or_create",
+                "vivado_bd_apply",
+                "vivado_bd_summary",
+                "vivado_bd_validate",
+                "vivado_bd_generate",
+            ],
+            "related_resources": ["vivado://skills/block-design-flow"],
         }
     if normalized in {"raw-tcl", "tcl", "expert"}:
         return {

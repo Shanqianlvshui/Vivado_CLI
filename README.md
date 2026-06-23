@@ -21,6 +21,7 @@ Current design documents:
 - Submit raw Tcl to a managed session when trusted-local expert mode is enabled.
 - Create or open project-mode Vivado projects.
 - Add RTL/source/constraint files with path validation.
+- Create, inspect, mutate, validate, and generate generic IP Integrator block designs.
 - Run synthesis, implementation, and bitstream generation.
 - Generate timing, utilization, DRC, and message reports.
 - Parse common report outputs into compact structured summaries.
@@ -109,6 +110,11 @@ After connecting the MCP client, use this sequence:
 - `vivado_create_project`
 - `vivado_open_project`
 - `vivado_add_sources`
+- `vivado_bd_open_or_create`
+- `vivado_bd_summary`
+- `vivado_bd_apply`
+- `vivado_bd_validate`
+- `vivado_bd_generate`
 - `vivado_run_synthesis`
 - `vivado_run_implementation`
 - `vivado_generate_bitstream`

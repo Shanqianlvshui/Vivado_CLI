@@ -110,6 +110,41 @@ def test_project_summary_returns_structured_state(tmp_path: Path) -> None:
     manager.stop_session(session_ref, timeout_seconds=5)
 
 
+def test_block_design_workflow_uses_generic_tools(tmp_path: Path) -> None:
+    wrapper = _make_fake_wrapper(tmp_path)
+    manager = VivadoSessionManager(default_workspace=tmp_path)
+    started = manager.start_session(vivado_path=str(wrapper), open_gui=False)
+    session_ref = str(started["session_ref"])
+
+    opened = manager.bd_open_or_create(session_ref=session_ref, design_name="design_1", timeout_seconds=5)
+    assert opened["ok"] is True
+    assert opened["result"] == "bd_design=design_1"
+
+    applied = manager.bd_apply(
+        session_ref=session_ref,
+        design_name="design_1",
+        actions=[
+            {"action": "create_cell", "name": "axi_gpio_0", "vlnv": "xilinx.com:ip:axi_gpio:*"},
+            {"action": "create_port", "name": "gpio_tri_o", "direction": "O", "from": 31, "to": 0},
+        ],
+        timeout_seconds=5,
+    )
+    assert applied["ok"] is True
+    assert "bd_actions_applied" in applied["result"]
+
+    summary = manager.bd_summary(session_ref=session_ref, design_name="design_1", validate=True, timeout_seconds=5)
+    assert summary["ok"] is True
+    assert summary["summary_artifact_uri"].startswith(f"vivado://sessions/{session_ref}/artifacts/")
+    assert summary["bd_summary"]["current_bd_design"] == "design_1"
+    assert summary["bd_summary"]["cells"][0]["vlnv"] == "xilinx.com:ip:axi_gpio:2.0"
+
+    generated = manager.bd_generate(session_ref=session_ref, design_name="design_1", timeout_seconds=5)
+    assert generated["ok"] is True
+    assert "bd_generated" in generated["result"]
+
+    manager.stop_session(session_ref, timeout_seconds=5)
+
+
 def test_open_gui_session_reports_visible_window_without_activating_by_default(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

@@ -345,6 +345,127 @@ class VivadoSessionManager:
         )
         return _result_to_dict(result, expect_destructive=False)
 
+    def bd_open_or_create(
+        self,
+        *,
+        session_ref: str,
+        design_name: str | None = None,
+        bd_path: str | None = None,
+        create_if_missing: bool = True,
+        timeout_seconds: int = 120,
+    ) -> dict[str, object]:
+        from .tcl import bd_open_or_create_tcl
+
+        running = self._get(session_ref)
+        resolved_bd_path = self.path_policy.require_under_roots(bd_path, label="bd_path", must_exist=True) if bd_path else None
+        result = self._submit_tcl(
+            running,
+            bd_open_or_create_tcl(design_name=design_name, bd_path=resolved_bd_path, create_if_missing=create_if_missing),
+            timeout_seconds=timeout_seconds,
+        )
+        return _result_to_dict(result, expect_destructive=create_if_missing)
+
+    def bd_summary(
+        self,
+        *,
+        session_ref: str,
+        design_name: str | None = None,
+        bd_path: str | None = None,
+        validate: bool = False,
+        timeout_seconds: int = 60,
+    ) -> dict[str, object]:
+        from .bd_summary import parse_bd_summary
+        from .tcl import bd_summary_tcl
+
+        running = self._get(session_ref)
+        resolved_bd_path = self.path_policy.require_under_roots(bd_path, label="bd_path", must_exist=True) if bd_path else None
+        summaries_dir = running.record.session_dir / "summaries"
+        summaries_dir.mkdir(parents=True, exist_ok=True)
+        output_path = summaries_dir / f"bd_summary_{uuid.uuid4().hex[:8]}.tsv"
+        raw_result = self._submit_tcl(
+            running,
+            bd_summary_tcl(output_path, design_name=design_name, bd_path=resolved_bd_path, validate=validate),
+            timeout_seconds=timeout_seconds,
+        )
+        result = _result_to_dict(raw_result, expect_destructive=False)
+        result["summary_path"] = str(output_path)
+        result["summary_artifact_uri"] = artifact_uri(session_ref, output_path.relative_to(running.record.session_dir).as_posix())
+        if output_path.exists():
+            result["bd_summary"] = parse_bd_summary(output_path)
+        return result
+
+    def bd_apply(
+        self,
+        *,
+        session_ref: str,
+        actions: list[dict[str, object]],
+        design_name: str | None = None,
+        bd_path: str | None = None,
+        validate: bool = True,
+        save: bool = True,
+        timeout_seconds: int = 300,
+    ) -> dict[str, object]:
+        from .tcl import bd_apply_tcl
+
+        if not actions:
+            raise ValueError("actions must contain at least one BD action")
+        running = self._get(session_ref)
+        resolved_bd_path = self.path_policy.require_under_roots(bd_path, label="bd_path", must_exist=True) if bd_path else None
+        raw_result = self._submit_tcl(
+            running,
+            bd_apply_tcl(actions=actions, design_name=design_name, bd_path=resolved_bd_path, validate=validate, save=save),
+            timeout_seconds=timeout_seconds,
+        )
+        return _result_to_dict(raw_result, expect_destructive=True)
+
+    def bd_validate(
+        self,
+        *,
+        session_ref: str,
+        design_name: str | None = None,
+        bd_path: str | None = None,
+        save: bool = False,
+        timeout_seconds: int = 120,
+    ) -> dict[str, object]:
+        from .tcl import bd_validate_tcl
+
+        running = self._get(session_ref)
+        resolved_bd_path = self.path_policy.require_under_roots(bd_path, label="bd_path", must_exist=True) if bd_path else None
+        raw_result = self._submit_tcl(
+            running,
+            bd_validate_tcl(design_name=design_name, bd_path=resolved_bd_path, save=save),
+            timeout_seconds=timeout_seconds,
+        )
+        return _result_to_dict(raw_result, expect_destructive=save)
+
+    def bd_generate(
+        self,
+        *,
+        session_ref: str,
+        design_name: str | None = None,
+        bd_path: str | None = None,
+        target: str = "all",
+        make_wrapper: bool = True,
+        wrapper_top: bool = True,
+        timeout_seconds: int = 600,
+    ) -> dict[str, object]:
+        from .tcl import bd_generate_tcl
+
+        running = self._get(session_ref)
+        resolved_bd_path = self.path_policy.require_under_roots(bd_path, label="bd_path", must_exist=True) if bd_path else None
+        raw_result = self._submit_tcl(
+            running,
+            bd_generate_tcl(
+                design_name=design_name,
+                bd_path=resolved_bd_path,
+                target=target,
+                make_wrapper=make_wrapper,
+                wrapper_top=wrapper_top,
+            ),
+            timeout_seconds=timeout_seconds,
+        )
+        return _result_to_dict(raw_result, expect_destructive=True)
+
     def launch_run(
         self,
         *,

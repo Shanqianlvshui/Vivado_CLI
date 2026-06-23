@@ -171,6 +171,104 @@ def vivado_add_sources(
 
 
 @mcp.tool()
+def vivado_bd_open_or_create(
+    session_ref: str,
+    design_name: str | None = None,
+    bd_path: str | None = None,
+    create_if_missing: bool = True,
+    timeout_seconds: int = 120,
+) -> dict[str, object]:
+    """Open an existing block design by name/path, or create a generic IP Integrator design."""
+    return manager.bd_open_or_create(
+        session_ref=session_ref,
+        design_name=design_name,
+        bd_path=bd_path,
+        create_if_missing=create_if_missing,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+@mcp.tool()
+def vivado_bd_summary(
+    session_ref: str,
+    design_name: str | None = None,
+    bd_path: str | None = None,
+    validate: bool = False,
+    timeout_seconds: int = 60,
+) -> dict[str, object]:
+    """Return generic structured information about a block design's cells, ports, nets, and validation state."""
+    return manager.bd_summary(
+        session_ref=session_ref,
+        design_name=design_name,
+        bd_path=bd_path,
+        validate=validate,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+@mcp.tool()
+def vivado_bd_apply(
+    session_ref: str,
+    actions: list[dict[str, object]],
+    design_name: str | None = None,
+    bd_path: str | None = None,
+    validate: bool = True,
+    save: bool = True,
+    timeout_seconds: int = 300,
+) -> dict[str, object]:
+    """Apply generic IP Integrator actions such as creating cells/ports, setting properties, and connecting nets."""
+    return manager.bd_apply(
+        session_ref=session_ref,
+        actions=actions,
+        design_name=design_name,
+        bd_path=bd_path,
+        validate=validate,
+        save=save,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+@mcp.tool()
+def vivado_bd_validate(
+    session_ref: str,
+    design_name: str | None = None,
+    bd_path: str | None = None,
+    save: bool = False,
+    timeout_seconds: int = 120,
+) -> dict[str, object]:
+    """Run Vivado block design validation for the current or selected design."""
+    return manager.bd_validate(
+        session_ref=session_ref,
+        design_name=design_name,
+        bd_path=bd_path,
+        save=save,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+@mcp.tool()
+def vivado_bd_generate(
+    session_ref: str,
+    design_name: str | None = None,
+    bd_path: str | None = None,
+    target: str = "all",
+    make_wrapper: bool = True,
+    wrapper_top: bool = True,
+    timeout_seconds: int = 600,
+) -> dict[str, object]:
+    """Generate block design output products and optionally add a generic HDL wrapper."""
+    return manager.bd_generate(
+        session_ref=session_ref,
+        design_name=design_name,
+        bd_path=bd_path,
+        target=target,
+        make_wrapper=make_wrapper,
+        wrapper_top=wrapper_top,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+@mcp.tool()
 def vivado_run_synthesis(
     session_ref: str,
     run_name: str = "synth_1",
