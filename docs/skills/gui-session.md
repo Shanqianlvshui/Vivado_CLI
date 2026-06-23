@@ -12,9 +12,10 @@ Use this when the user wants AI to open Vivado and keep the GUI visible while AI
 
 1. Call `vivado_check_installation`.
 2. Call `vivado_start_session` with `open_gui=true`.
-3. Call `vivado_session_state` and confirm the bridge is idle.
-4. Use workflow tools such as `vivado_create_project`, `vivado_add_sources`, `vivado_run_synthesis`, and `vivado_report`.
-5. Call `vivado_stop_session` when finished.
+3. Confirm the returned `gui.visible` is `true`; if it is not, report `gui.detail` instead of claiming the GUI is visible.
+4. Call `vivado_focus_gui` when the user cannot see the window or asks to bring Vivado forward.
+5. Use workflow tools such as `vivado_create_project`, `vivado_add_sources`, `vivado_run_synthesis`, and `vivado_report`.
+6. Call `vivado_stop_session` when finished.
 
 ## Notes For AI
 
@@ -22,10 +23,11 @@ Use this when the user wants AI to open Vivado and keep the GUI visible while AI
 - Treat the Vivado GUI as a visible state viewer and occasional human interaction surface.
 - Before each mutating command, refresh session state because the user may have changed the project in the GUI.
 - If the session is busy, wait or ask before sending another command.
+- `open_gui=true` means the GUI was requested; `gui.visible=true` means a desktop window was actually found.
 
 ## Common Problems
 
 - If Vivado starts but bridge state is not idle, inspect the session log resource.
+- If `gui.visible=false`, call `vivado_focus_gui`; if it is still false, inspect `gui.bridge_gui` and the process log.
 - If GUI shutdown returns a non-zero process code, prefer the bridge result file when it shows the command succeeded.
 - If the user already opened Vivado manually, ask them to source the bridge script or start a managed session instead.
-

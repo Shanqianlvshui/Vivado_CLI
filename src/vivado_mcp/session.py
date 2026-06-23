@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import re
+import signal
 import subprocess
 import threading
 import time
@@ -9,6 +11,7 @@ from importlib import resources
 from pathlib import Path
 from urllib.parse import quote, unquote
 
+from .gui_probe import probe_vivado_gui, wait_for_vivado_gui
 from .policy import PathPolicy
 from .tcl import stop_bridge_tcl
 from .types import CapabilityProfile, SessionRecord, TclCommandResult
@@ -34,6 +37,8 @@ class VivadoSessionManager:
         open_gui: bool = True,
         capability_profile: CapabilityProfile = "trusted-local",
         startup_timeout_seconds: int = 45,
+        gui_wait_seconds: int = 20,
+        activate_gui: bool = True,
     ) -> dict[str, object]:
         workspace = self.path_policy.require_under_roots(
             workspace_dir or self.default_workspace,
@@ -87,6 +92,7 @@ class VivadoSessionManager:
 
         try:
             self._wait_for_idle(running, startup_timeout_seconds)
+            gui_state = self._wait_for_gui(running, timeout_seconds=gui_wait_seconds, activate=activate_gui)
         except Exception:
             if process.poll() is None:
                 process.terminate()
@@ -104,6 +110,7 @@ class VivadoSessionManager:
             "open_gui": open_gui,
             "capability_profile": capability_profile,
             "allowed_roots": [str(root) for root in self.path_policy.roots],
+            "gui": gui_state,
             "state": state,
         }
 
@@ -126,6 +133,7 @@ class VivadoSessionManager:
             "process_running": running.process.poll() is None,
             "process_exit_code": running.process.poll(),
             "status": status,
+            "gui": self._gui_state(running, activate=False),
             "session_dir": str(running.record.session_dir),
             "workspace_dir": str(running.record.workspace_dir),
             "log_path": str(running.record.log_path),
@@ -222,6 +230,8 @@ class VivadoSessionManager:
 
     def stop_session(self, session_ref: str, *, force: bool = False, timeout_seconds: int = 20) -> dict[str, object]:
         running = self._get(session_ref)
+        gui_before_stop = self._gui_state(running, activate=False)
+        managed_gui_pids = _managed_gui_pids(gui_before_stop)
         stop_result: dict[str, object] | None = None
         if running.process.poll() is None:
             try:
@@ -246,6 +256,7 @@ class VivadoSessionManager:
                 running.process.wait(timeout=10)
 
         running.log_file.close()
+        gui_cleanup = _terminate_processes(managed_gui_pids)
         with self._lock:
             self._sessions.pop(session_ref, None)
 
@@ -253,6 +264,8 @@ class VivadoSessionManager:
             "session_ref": session_ref,
             "process_exit_code": running.process.returncode,
             "stop_result": stop_result,
+            "gui_before_stop": gui_before_stop,
+            "gui_cleanup": gui_cleanup,
             "log_path": str(running.record.log_path),
         }
 
@@ -282,13 +295,32 @@ class VivadoSessionManager:
         result = self._submit_tcl(running, tcl, timeout_seconds=timeout_seconds)
         return _result_to_dict(result, expect_destructive=force)
 
-    def open_project(self, *, session_ref: str, project_path: str, timeout_seconds: int = 120) -> dict[str, object]:
+    def open_project(
+        self,
+        *,
+        session_ref: str,
+        project_path: str,
+        timeout_seconds: int = 120,
+        gui_wait_seconds: int = 20,
+        focus_gui: bool = True,
+    ) -> dict[str, object]:
         from .tcl import open_project_tcl
 
         running = self._get(session_ref)
         path = self.path_policy.require_under_roots(project_path, label="project_path", must_exist=True)
         result = self._submit_tcl(running, open_project_tcl(path), timeout_seconds=timeout_seconds)
-        return _result_to_dict(result, expect_destructive=False)
+        if result.ok:
+            running.record.current_project_path = path
+        data = _result_to_dict(result, expect_destructive=False)
+        data["gui"] = self._wait_for_gui(running, timeout_seconds=gui_wait_seconds, activate=focus_gui)
+        return data
+
+    def focus_gui(self, session_ref: str, *, timeout_seconds: int = 10) -> dict[str, object]:
+        running = self._get(session_ref)
+        return {
+            "session_ref": session_ref,
+            "gui": self._wait_for_gui(running, timeout_seconds=timeout_seconds, activate=True),
+        }
 
     def add_sources(
         self,
@@ -406,6 +438,31 @@ class VivadoSessionManager:
             time.sleep(0.1)
         raise TimeoutError("Timed out waiting for Vivado bridge to become idle")
 
+    def _wait_for_gui(self, running: "_RunningSession", *, timeout_seconds: int, activate: bool) -> dict[str, object]:
+        if not running.record.open_gui:
+            return _gui_not_requested()
+        state = wait_for_vivado_gui(
+            root_pid=running.process.pid,
+            extra_pids=_vivado_process_ids_from_log(running.record.log_path),
+            title_hints=_gui_title_hints(running.record),
+            timeout_seconds=timeout_seconds,
+            activate=activate,
+        )
+        state["bridge_gui"] = _read_status(running.record.session_dir / "gui_status.txt")
+        return state
+
+    def _gui_state(self, running: "_RunningSession", *, activate: bool) -> dict[str, object]:
+        if not running.record.open_gui:
+            return _gui_not_requested()
+        state = probe_vivado_gui(
+            root_pid=running.process.pid,
+            extra_pids=_vivado_process_ids_from_log(running.record.log_path),
+            title_hints=_gui_title_hints(running.record),
+            activate=activate,
+        )
+        state["bridge_gui"] = _read_status(running.record.session_dir / "gui_status.txt")
+        return state
+
     def _get(self, session_ref: str) -> "_RunningSession":
         with self._lock:
             running = self._sessions.get(session_ref)
@@ -451,6 +508,122 @@ def _read_status(path: Path) -> dict[str, str]:
             key, value = line.split("=", 1)
             data[key] = value
     return data
+
+
+def _gui_not_requested() -> dict[str, object]:
+    return {
+        "requested": False,
+        "platform": os.sys.platform,
+        "platform_supported": os.sys.platform == "win32",
+        "visible": False,
+        "activated": False,
+        "windows": [],
+        "detail": "Session was started with open_gui=false.",
+    }
+
+
+def _gui_title_hints(record: SessionRecord) -> list[str]:
+    if record.current_project_path is None:
+        return []
+    project_path = record.current_project_path
+    return [
+        project_path.name,
+        project_path.stem,
+        project_path.as_posix(),
+        str(project_path).replace("\\", "/"),
+    ]
+
+
+def _vivado_process_ids_from_log(path: Path) -> set[int]:
+    if not path.exists():
+        return set()
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return set()
+    return {int(match) for match in re.findall(r"Process ID:\s*(\d+)", text)}
+
+
+def _managed_gui_pids(gui_state: dict[str, object]) -> set[int]:
+    watched_pids = {int(pid) for pid in gui_state.get("watched_pids", [])}
+    pids: set[int] = set()
+    for window in gui_state.get("windows", []):
+        if not isinstance(window, dict):
+            continue
+        try:
+            pid = int(window["pid"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if pid in watched_pids:
+            pids.add(pid)
+    return pids
+
+
+def _terminate_processes(pids: set[int], timeout_seconds: int = 5) -> dict[str, object]:
+    terminated: list[int] = []
+    exited: list[int] = []
+    skipped: list[int] = []
+    errors: list[dict[str, object]] = []
+    current_pid = os.getpid()
+    candidate_pids = sorted(pid for pid in pids if pid > 0 and pid != current_pid)
+
+    skipped.extend(sorted(pid for pid in pids if pid <= 0 or pid == current_pid))
+
+    deadline = time.time() + timeout_seconds
+    while candidate_pids and time.time() < deadline:
+        remaining = [pid for pid in candidate_pids if _process_exists(pid)]
+        if not remaining:
+            break
+        candidate_pids = remaining
+        time.sleep(0.1)
+
+    for pid in candidate_pids:
+        if not _process_exists(pid):
+            exited.append(pid)
+            continue
+        try:
+            os.kill(pid, signal.SIGTERM)
+            terminated.append(pid)
+        except ProcessLookupError:
+            exited.append(pid)
+        except PermissionError as exc:
+            time.sleep(0.5)
+            if _process_exists(pid):
+                errors.append({"pid": pid, "error": str(exc)})
+            else:
+                exited.append(pid)
+        except OSError as exc:
+            time.sleep(0.5)
+            if _process_exists(pid):
+                errors.append({"pid": pid, "error": str(exc)})
+            else:
+                exited.append(pid)
+
+    if terminated:
+        deadline = time.time() + timeout_seconds
+        while time.time() < deadline:
+            if all(not _process_exists(pid) for pid in terminated):
+                break
+            time.sleep(0.1)
+
+    return {
+        "terminated_pids": terminated,
+        "exited_pids": sorted(set(exited)),
+        "skipped_pids": skipped,
+        "errors": errors,
+    }
+
+
+def _process_exists(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
 
 
 def _parse_result(command_id: str, result_path: Path, command_path: Path) -> TclCommandResult:

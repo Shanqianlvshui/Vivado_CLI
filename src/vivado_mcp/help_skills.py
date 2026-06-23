@@ -87,8 +87,8 @@ def help_topic(topic: str | None = None) -> dict[str, object]:
     if normalized in {"gui", "gui-session", "session"}:
         return {
             "topic": "gui_session",
-            "summary": "Start a managed Vivado Tcl session with `open_gui=true`; AI commands then run in the same visible Vivado process.",
-            "recommended_tools": ["vivado_check_installation", "vivado_start_session", "vivado_session_state"],
+            "summary": "Start a managed Vivado Tcl session with `open_gui=true`, verify `gui.visible`, and focus the same Vivado window when needed.",
+            "recommended_tools": ["vivado_check_installation", "vivado_start_session", "vivado_session_state", "vivado_focus_gui"],
             "related_resources": ["vivado://skills/gui-session"],
         }
     if normalized in {"project", "project-flow", "project-build-flow", "build"}:
@@ -133,7 +133,7 @@ def suggest_next_steps(
         return {
             "recommendations": [
                 {"tool": "vivado_check_installation", "why": "Find Vivado and confirm the version."},
-                {"tool": "vivado_start_session", "why": "Start a managed Tcl session and open the GUI."},
+                {"tool": "vivado_start_session", "why": "Start a managed Tcl session, open the GUI, and report whether a visible window was found."},
             ],
             "related_resources": ["vivado://skills/gui-session"],
         }
@@ -162,4 +162,3 @@ def _find_skill(skill_id: str) -> Skill:
 
 def _read_skill_file(filename: str) -> str:
     return resources.files("vivado_mcp.skills").joinpath(filename).read_text(encoding="utf-8")
-

@@ -110,6 +110,136 @@ def test_project_summary_returns_structured_state(tmp_path: Path) -> None:
     manager.stop_session(session_ref, timeout_seconds=5)
 
 
+def test_open_gui_session_reports_visible_window(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    wrapper = _make_fake_wrapper(tmp_path)
+    manager = VivadoSessionManager(default_workspace=tmp_path)
+
+    def fake_wait_for_gui(**kwargs):
+        assert kwargs["timeout_seconds"] == 3
+        assert kwargs["activate"] is True
+        return {
+            "requested": True,
+            "platform": "win32",
+            "platform_supported": True,
+            "visible": True,
+            "activated": True,
+            "windows": [{"handle": 123, "pid": kwargs["root_pid"], "title": "Vivado 2023.1"}],
+            "detail": "Matched 1 Vivado GUI window.",
+        }
+
+    def fake_probe_gui(**kwargs):
+        return {
+            "requested": True,
+            "platform": "win32",
+            "platform_supported": True,
+            "visible": True,
+            "activated": False,
+            "windows": [{"handle": 123, "pid": kwargs["root_pid"], "title": "Vivado 2023.1"}],
+            "detail": "Matched 1 Vivado GUI window.",
+        }
+
+    monkeypatch.setattr("vivado_mcp.session.wait_for_vivado_gui", fake_wait_for_gui)
+    monkeypatch.setattr("vivado_mcp.session.probe_vivado_gui", fake_probe_gui)
+
+    started = manager.start_session(
+        vivado_path=str(wrapper),
+        open_gui=True,
+        gui_wait_seconds=3,
+        activate_gui=True,
+    )
+    session_ref = str(started["session_ref"])
+
+    assert started["gui"]["visible"] is True
+    assert started["state"]["gui"]["visible"] is True
+
+    state = manager.session_state(session_ref)
+    assert state["gui"]["windows"][0]["title"] == "Vivado 2023.1"
+
+    manager.stop_session(session_ref, timeout_seconds=5)
+
+
+def test_open_project_in_gui_updates_project_hint_and_focuses(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    wrapper = _make_fake_wrapper(tmp_path)
+    project = tmp_path / "demo.xpr"
+    project.write_text("", encoding="utf-8")
+    manager = VivadoSessionManager(default_workspace=tmp_path)
+    wait_calls: list[dict[str, object]] = []
+
+    def fake_wait_for_gui(**kwargs):
+        wait_calls.append(kwargs)
+        return {
+            "requested": True,
+            "platform": "win32",
+            "platform_supported": True,
+            "visible": True,
+            "activated": kwargs["activate"],
+            "windows": [{"handle": 456, "pid": kwargs["root_pid"], "title": "demo - Vivado 2023.1"}],
+            "detail": "Matched 1 Vivado GUI window.",
+        }
+
+    def fake_probe_gui(**kwargs):
+        return {
+            "requested": True,
+            "platform": "win32",
+            "platform_supported": True,
+            "visible": True,
+            "activated": False,
+            "windows": [{"handle": 456, "pid": kwargs["root_pid"], "title": "demo - Vivado 2023.1"}],
+            "detail": "Matched 1 Vivado GUI window.",
+        }
+
+    monkeypatch.setattr("vivado_mcp.session.wait_for_vivado_gui", fake_wait_for_gui)
+    monkeypatch.setattr("vivado_mcp.session.probe_vivado_gui", fake_probe_gui)
+
+    started = manager.start_session(vivado_path=str(wrapper), open_gui=True, gui_wait_seconds=0)
+    session_ref = str(started["session_ref"])
+
+    result = manager.open_project(
+        session_ref=session_ref,
+        project_path=str(project),
+        timeout_seconds=5,
+        gui_wait_seconds=5,
+        focus_gui=True,
+    )
+
+    assert result["ok"] is True
+    assert result["gui"]["visible"] is True
+    assert result["gui"]["activated"] is True
+    assert any("demo.xpr" in call["title_hints"] for call in wait_calls)
+
+    manager.stop_session(session_ref, timeout_seconds=5)
+
+
+def test_stop_session_cleans_up_managed_gui_process(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    wrapper = _make_fake_wrapper(tmp_path)
+    manager = VivadoSessionManager(default_workspace=tmp_path)
+
+    def fake_wait_for_gui(**kwargs):
+        return {
+            "requested": True,
+            "platform": "win32",
+            "platform_supported": True,
+            "visible": True,
+            "activated": False,
+            "watched_pids": [999],
+            "windows": [{"handle": 789, "pid": 999, "title": "Vivado 2023.1"}],
+            "detail": "Matched 1 Vivado GUI window.",
+        }
+
+    monkeypatch.setattr("vivado_mcp.session.wait_for_vivado_gui", fake_wait_for_gui)
+    monkeypatch.setattr("vivado_mcp.session.probe_vivado_gui", fake_wait_for_gui)
+    monkeypatch.setattr(
+        "vivado_mcp.session._terminate_processes",
+        lambda pids, timeout_seconds=5: {"terminated_pids": sorted(pids), "errors": []},
+    )
+
+    started = manager.start_session(vivado_path=str(wrapper), open_gui=True, gui_wait_seconds=0)
+    stopped = manager.stop_session(str(started["session_ref"]), timeout_seconds=5)
+
+    assert stopped["process_exit_code"] == 0
+    assert stopped["gui_cleanup"]["terminated_pids"] == [999]
+
+
 def _make_fake_wrapper(tmp_path: Path) -> Path:
     fake = Path(__file__).resolve().parents[1] / "fixtures" / "fake_vivado.py"
     wrapper = tmp_path / "vivado.bat"

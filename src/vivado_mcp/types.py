@@ -38,4 +38,4 @@ class SessionRecord:
     open_gui: bool
     capability_profile: CapabilityProfile
     log_path: Path
-
+    current_project_path: Path | None = None

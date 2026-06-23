@@ -18,6 +18,7 @@ async def test_mcp_server_lists_core_tools() -> None:
             assert {
                 "vivado_check_installation",
                 "vivado_start_session",
+                "vivado_focus_gui",
                 "vivado_run_tcl",
                 "vivado_project_summary",
                 "vivado_list_sessions",

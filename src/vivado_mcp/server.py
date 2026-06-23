@@ -39,14 +39,18 @@ def vivado_start_session(
     open_gui: bool = True,
     capability_profile: Literal["safe", "trusted-local", "unrestricted"] = "trusted-local",
     startup_timeout_seconds: int = 45,
+    gui_wait_seconds: int = 20,
+    activate_gui: bool = True,
 ) -> dict[str, object]:
-    """Start a managed Vivado Tcl session, optionally opening the GUI."""
+    """Start a managed Vivado Tcl session, optionally opening and verifying the GUI."""
     return manager.start_session(
         vivado_path=vivado_path,
         workspace_dir=workspace_dir,
         open_gui=open_gui,
         capability_profile=capability_profile,
         startup_timeout_seconds=startup_timeout_seconds,
+        gui_wait_seconds=gui_wait_seconds,
+        activate_gui=activate_gui,
     )
 
 
@@ -66,6 +70,12 @@ def vivado_list_sessions() -> dict[str, object]:
 def vivado_stop_session(session_ref: str, force: bool = False, timeout_seconds: int = 20) -> dict[str, object]:
     """Stop a managed Vivado session."""
     return manager.stop_session(session_ref, force=force, timeout_seconds=timeout_seconds)
+
+
+@mcp.tool()
+def vivado_focus_gui(session_ref: str, timeout_seconds: int = 10) -> dict[str, object]:
+    """Bring the managed Vivado GUI window to the foreground when it can be found."""
+    return manager.focus_gui(session_ref, timeout_seconds=timeout_seconds)
 
 
 @mcp.tool()
@@ -125,9 +135,21 @@ def vivado_create_project(
 
 
 @mcp.tool()
-def vivado_open_project(session_ref: str, project_path: str, timeout_seconds: int = 120) -> dict[str, object]:
-    """Open an existing Vivado project in the managed session."""
-    return manager.open_project(session_ref=session_ref, project_path=project_path, timeout_seconds=timeout_seconds)
+def vivado_open_project(
+    session_ref: str,
+    project_path: str,
+    timeout_seconds: int = 120,
+    gui_wait_seconds: int = 20,
+    focus_gui: bool = True,
+) -> dict[str, object]:
+    """Open an existing Vivado project in the managed session and refresh GUI visibility state."""
+    return manager.open_project(
+        session_ref=session_ref,
+        project_path=project_path,
+        timeout_seconds=timeout_seconds,
+        gui_wait_seconds=gui_wait_seconds,
+        focus_gui=focus_gui,
+    )
 
 
 @mcp.tool()

@@ -22,6 +22,18 @@ proc mcp_status {state detail} {
     mcp_write_text [file join $session_dir "status.txt"] "state=$state\ntime=[mcp_now]\ndetail=$detail\n"
 }
 
+proc mcp_gui_status {state detail {code ""} {result ""}} {
+    global session_dir
+    set text "state=$state\ntime=[mcp_now]\ndetail=$detail\n"
+    if {$code ne ""} {
+        append text "code=$code\n"
+    }
+    if {$result ne ""} {
+        append text "result=$result\n"
+    }
+    mcp_write_text [file join $session_dir "gui_status.txt"] $text
+}
+
 proc mcp_run_command_file {command_file} {
     global running_dir done_dir
 
@@ -60,14 +72,21 @@ proc mcp_poll {} {
 mcp_status "starting" "bridge loaded"
 
 if {$open_gui} {
+    mcp_gui_status "requested" "start_gui scheduled"
     after 0 {
-        catch {
+        set gui_code [catch {
             start_gui
-        } gui_result
+        } gui_result]
+        if {$gui_code == 0} {
+            mcp_gui_status "started" "start_gui returned" $gui_code $gui_result
+        } else {
+            mcp_gui_status "error" "start_gui failed" $gui_code $gui_result
+        }
     }
+} else {
+    mcp_gui_status "not_requested" "session started without GUI"
 }
 
 mcp_status "idle" "ready"
 mcp_poll
 vwait ::vivado_mcp_bridge_forever
-
