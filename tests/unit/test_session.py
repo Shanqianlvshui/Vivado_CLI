@@ -120,6 +120,59 @@ def test_analyze_reports_generates_diagnostics(tmp_path: Path) -> None:
     manager.stop_session(session_ref, timeout_seconds=5)
 
 
+def test_nonproject_workflow_reads_sources_and_runs_steps(tmp_path: Path) -> None:
+    wrapper = _make_fake_wrapper(tmp_path)
+    top_v = tmp_path / "top.v"
+    tb_sv = tmp_path / "tb.sv"
+    xdc = tmp_path / "timing.xdc"
+    top_v.write_text("module top; endmodule\n", encoding="utf-8")
+    tb_sv.write_text("module tb; endmodule\n", encoding="utf-8")
+    xdc.write_text("create_clock -period 10 [get_ports clk]\n", encoding="utf-8")
+    manager = VivadoSessionManager(default_workspace=tmp_path)
+    started = manager.start_session(vivado_path=str(wrapper), open_gui=False)
+    session_ref = str(started["session_ref"])
+
+    read = manager.nonproject_read_sources(
+        session_ref=session_ref,
+        verilog=[str(top_v)],
+        systemverilog=[str(tb_sv)],
+        xdc=[str(xdc)],
+        library="xil_defaultlib",
+        timeout_seconds=5,
+    )
+    assert read["ok"] is True
+    assert read["nonproject"]["file_count"] == 2
+    assert read["nonproject"]["constraint_count"] == 1
+
+    synth = manager.nonproject_run_step(
+        session_ref=session_ref,
+        step="synth_design",
+        part="xc7a35tcpg236-1",
+        top="top",
+        checkpoint_name="synth.dcp",
+        report_types=["utilization", "drc"],
+        timeout_seconds=5,
+    )
+    assert synth["ok"] is True
+    assert synth["nonproject"]["steps"][0]["name"] == "synth_design"
+    assert synth["checkpoint_artifact_uri"].startswith(f"vivado://sessions/{session_ref}/artifacts/")
+    assert synth["report_summaries"]["utilization"]["parsed"] is True
+    assert synth["report_summaries"]["drc"]["parsed"] is True
+
+    for step in ("opt_design", "place_design", "route_design"):
+        result = manager.nonproject_run_step(
+            session_ref=session_ref,
+            step=step,
+            checkpoint_name=f"{step}.dcp",
+            report_types=["drc"],
+            timeout_seconds=5,
+        )
+        assert result["ok"] is True
+        assert result["nonproject"]["steps"][0]["name"] == step
+
+    manager.stop_session(session_ref, timeout_seconds=5)
+
+
 def test_project_summary_returns_structured_state(tmp_path: Path) -> None:
     wrapper = _make_fake_wrapper(tmp_path)
     manager = VivadoSessionManager(default_workspace=tmp_path)

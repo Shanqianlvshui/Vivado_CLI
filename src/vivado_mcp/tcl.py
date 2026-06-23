@@ -481,6 +481,183 @@ def launch_run_tcl(run_name: str, jobs: int | None, to_step: str | None = None) 
 
 
 def report_tcl(report_type: str, output_path: Path) -> str:
+    command = _report_command(report_type)
+    return "\n".join(
+        [
+            f"{command} -file {quote_tcl(output_path)} -force",
+            f"return \"report={str(output_path).replace('\\', '/')}\"",
+        ]
+    )
+
+
+# ---------------------------------------------------------------------------
+# Non-project helpers
+# ---------------------------------------------------------------------------
+
+
+def nonproject_read_sources_tcl(
+    output_path: Path,
+    *,
+    verilog: list[Path] | None = None,
+    systemverilog: list[Path] | None = None,
+    vhdl: list[Path] | None = None,
+    xdc: list[Path] | None = None,
+    include_dirs: list[Path] | None = None,
+    defines: list[str] | None = None,
+    library: str | None = None,
+) -> str:
+    if not any((verilog, systemverilog, vhdl, xdc)):
+        raise ValueError("nonproject_read_sources_tcl requires at least one source or constraint")
+    out = quote_tcl(output_path)
+    out_string = str(output_path).replace("\\", "/")
+    lines = [
+        f"set mcp_nonproject_file {out}",
+        "set f [open $mcp_nonproject_file w]",
+        "proc mcp_put {f args} { puts $f [join $args \"\\t\"] }",
+    ]
+    read_args = _nonproject_read_args(include_dirs=include_dirs, defines=defines, library=library)
+    if verilog:
+        lines.append(f"read_verilog{read_args} [list {tcl_list(verilog)}]")
+        for path in verilog:
+            lines.append(f"mcp_put $f file verilog {quote_tcl(path)} {quote_tcl(library or '')}")
+    if systemverilog:
+        lines.append(f"read_verilog -sv{read_args} [list {tcl_list(systemverilog)}]")
+        for path in systemverilog:
+            lines.append(f"mcp_put $f file systemverilog {quote_tcl(path)} {quote_tcl(library or '')}")
+    if vhdl:
+        lib_arg = f" -library {quote_tcl(library)}" if library else ""
+        lines.append(f"read_vhdl{lib_arg} [list {tcl_list(vhdl)}]")
+        for path in vhdl:
+            lines.append(f"mcp_put $f file vhdl {quote_tcl(path)} {quote_tcl(library or '')}")
+    if xdc:
+        lines.append(f"read_xdc [list {tcl_list(xdc)}]")
+        for path in xdc:
+            lines.append(f"mcp_put $f constraint {quote_tcl(path)} global")
+    lines.extend(
+        [
+            "close $f",
+            f"return \"nonproject_sources={out_string}\"",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def nonproject_run_step_tcl(
+    output_path: Path,
+    *,
+    step: str,
+    part: str | None = None,
+    top: str | None = None,
+    checkpoint_path: Path | None = None,
+    reports: dict[str, Path] | None = None,
+    extra_args: dict[str, Any] | None = None,
+) -> str:
+    if not step.strip():
+        raise ValueError("nonproject_run_step_tcl requires step")
+    normalized = step.strip()
+    if normalized not in {"synth_design", "opt_design", "place_design", "route_design"}:
+        raise ValueError("Unsupported non-project step")
+    if normalized == "synth_design" and (not part or not top):
+        raise ValueError("synth_design requires part and top")
+    out = quote_tcl(output_path)
+    out_string = str(output_path).replace("\\", "/")
+    lines = [
+        f"set mcp_nonproject_step_file {out}",
+        "set f [open $mcp_nonproject_step_file w]",
+        "proc mcp_put {f args} { puts $f [join $args \"\\t\"] }",
+    ]
+    command = _nonproject_step_command(normalized, part=part, top=top, extra_args=extra_args)
+    lines.extend(
+        [
+            "set mcp_step_code [catch {",
+            f"  {command}",
+            "} mcp_step_result]",
+            "if {$mcp_step_code == 0} {",
+            f"  mcp_put $f step {quote_tcl(normalized)} ok $mcp_step_result",
+            "} else {",
+            f"  mcp_put $f step {quote_tcl(normalized)} error $mcp_step_result",
+            "  close $f",
+            "  error $mcp_step_result",
+            "}",
+        ]
+    )
+    if part:
+        lines.append(f"mcp_put $f part {quote_tcl(part)}")
+    if top:
+        lines.append(f"mcp_put $f top {quote_tcl(top)}")
+    if checkpoint_path:
+        lines.extend(
+            [
+                f"write_checkpoint -force {quote_tcl(checkpoint_path)}",
+                f"mcp_put $f checkpoint {quote_tcl(normalized)} {quote_tcl(checkpoint_path)}",
+            ]
+        )
+    for report_type, report_path in (reports or {}).items():
+        command_name = _report_command(report_type)
+        lines.extend(
+            [
+                f"{command_name} -file {quote_tcl(report_path)} -force",
+                f"mcp_put $f report {quote_tcl(report_type)} {quote_tcl(report_path)}",
+            ]
+        )
+    lines.extend(
+        [
+            "close $f",
+            f"return \"nonproject_step={out_string}\"",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _nonproject_read_args(
+    *,
+    include_dirs: list[Path] | None,
+    defines: list[str] | None,
+    library: str | None,
+) -> str:
+    args: list[str] = []
+    if include_dirs:
+        args.extend(["-include_dirs", f"[list {tcl_list(include_dirs)}]"])
+    if defines:
+        args.extend(["-define", f"[list {tcl_list(defines)}]"])
+    if library:
+        args.extend(["-library", quote_tcl(library)])
+    return (" " + " ".join(args)) if args else ""
+
+
+def _nonproject_step_command(
+    step: str,
+    *,
+    part: str | None,
+    top: str | None,
+    extra_args: dict[str, Any] | None,
+) -> str:
+    args = [step]
+    if step == "synth_design":
+        args.extend(["-top", quote_tcl(top or ""), "-part", quote_tcl(part or "")])
+    for key, value in (extra_args or {}).items():
+        name = str(key).strip()
+        if not name:
+            continue
+        if not _safe_tcl_option_name(name):
+            raise ValueError(f"Unsupported Tcl option name: {name!r}")
+        option = name if name.startswith("-") else f"-{name}"
+        if isinstance(value, bool):
+            if value:
+                args.append(option)
+        elif isinstance(value, list):
+            args.extend([option, f"[list {tcl_list([str(item) for item in value])}]"])
+        elif value is not None:
+            args.extend([option, quote_tcl(str(value))])
+    return " ".join(args)
+
+
+def _safe_tcl_option_name(name: str) -> bool:
+    option = name[1:] if name.startswith("-") else name
+    return bool(option) and all(char.isalnum() or char in {"_", "-"} for char in option)
+
+
+def _report_command(report_type: str) -> str:
     commands = {
         "timing_summary": "report_timing_summary",
         "timing_paths": "report_timing",
@@ -495,12 +672,7 @@ def report_tcl(report_type: str, output_path: Path) -> str:
     if command is None:
         allowed = ", ".join(sorted(commands))
         raise ValueError(f"Unsupported report_type {report_type!r}; expected one of {allowed}")
-    return "\n".join(
-        [
-            f"{command} -file {quote_tcl(output_path)} -force",
-            f"return \"report={str(output_path).replace('\\', '/')}\"",
-        ]
-    )
+    return command
 
 
 # ---------------------------------------------------------------------------

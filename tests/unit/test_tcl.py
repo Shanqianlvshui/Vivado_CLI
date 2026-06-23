@@ -15,6 +15,8 @@ from vivado_mcp.tcl import (
     ip_generate_outputs_tcl,
     ip_list_tcl,
     ip_upgrade_tcl,
+    nonproject_read_sources_tcl,
+    nonproject_run_step_tcl,
     quote_tcl,
     report_tcl,
     simulation_launch_tcl,
@@ -182,3 +184,48 @@ def test_simulation_tcl_helpers_prepare_and_launch() -> None:
         simulation_launch_tcl(Path("sim.tsv"), fileset="sim_1", mode="behavioral", sim_type="timing")
     with pytest.raises(ValueError):
         simulation_launch_tcl(Path("sim.tsv"), fileset="sim_1", mode="post-implementation")
+
+
+def test_nonproject_tcl_helpers_read_sources_and_run_steps() -> None:
+    read_script = nonproject_read_sources_tcl(
+        Path("np.tsv"),
+        verilog=[Path("C:/demo/top.v")],
+        systemverilog=[Path("C:/demo/tb.sv")],
+        vhdl=[Path("C:/demo/pkg.vhd")],
+        xdc=[Path("C:/demo/timing.xdc")],
+        include_dirs=[Path("C:/demo/include")],
+        defines=["SIM=0"],
+        library="xil_defaultlib",
+    )
+
+    assert "read_verilog -include_dirs [list {C:/demo/include}] -define [list {SIM=0}] -library {xil_defaultlib} [list {C:/demo/top.v}]" in read_script
+    assert "read_verilog -sv -include_dirs" in read_script
+    assert "read_vhdl -library {xil_defaultlib} [list {C:/demo/pkg.vhd}]" in read_script
+    assert "read_xdc [list {C:/demo/timing.xdc}]" in read_script
+    assert "mcp_put $f file verilog" in read_script
+
+    step_script = nonproject_run_step_tcl(
+        Path("step.tsv"),
+        step="synth_design",
+        part="xc7a35tcpg236-1",
+        top="top",
+        checkpoint_path=Path("C:/demo/synth.dcp"),
+        reports={"utilization": Path("C:/demo/util.rpt"), "drc": Path("C:/demo/drc.rpt")},
+        extra_args={"flatten_hierarchy": "rebuilt", "mode": "out_of_context"},
+    )
+
+    assert "synth_design -top {top} -part {xc7a35tcpg236-1} -flatten_hierarchy {rebuilt} -mode {out_of_context}" in step_script
+    assert "write_checkpoint -force {C:/demo/synth.dcp}" in step_script
+    assert "report_utilization -file {C:/demo/util.rpt} -force" in step_script
+    assert "report_drc -file {C:/demo/drc.rpt} -force" in step_script
+
+    with pytest.raises(ValueError):
+        nonproject_run_step_tcl(Path("bad.tsv"), step="synth_design", part="xc7a35tcpg236-1")
+    with pytest.raises(ValueError):
+        nonproject_run_step_tcl(Path("bad.tsv"), step="write_bitstream")
+    with pytest.raises(ValueError):
+        nonproject_run_step_tcl(
+            Path("bad.tsv"),
+            step="opt_design",
+            extra_args={"bad;exec": "calc"},
+        )

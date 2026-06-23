@@ -600,6 +600,112 @@ def vivado_analyze_reports(
 
 
 @mcp.tool()
+def vivado_nonproject_read_sources(
+    session_ref: str,
+    verilog: list[str] | None = None,
+    systemverilog: list[str] | None = None,
+    vhdl: list[str] | None = None,
+    xdc: list[str] | None = None,
+    include_dirs: list[str] | None = None,
+    defines: list[str] | None = None,
+    library: str | None = None,
+    timeout_seconds: int = 120,
+) -> dict[str, object]:
+    """Read RTL and XDC files into a managed Non-project Mode design."""
+    return manager.nonproject_read_sources(
+        session_ref=session_ref,
+        verilog=verilog,
+        systemverilog=systemverilog,
+        vhdl=vhdl,
+        xdc=xdc,
+        include_dirs=include_dirs,
+        defines=defines,
+        library=library,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+@mcp.tool()
+def vivado_nonproject_synth_design(
+    session_ref: str,
+    part: str,
+    top: str,
+    checkpoint_name: str | None = "synth_design.dcp",
+    report_types: list[Literal["timing_summary", "utilization", "drc", "methodology", "messages"]] | None = None,
+    extra_args: dict[str, object] | None = None,
+    timeout_seconds: int = 3600,
+) -> dict[str, object]:
+    """Run synth_design in Non-project Mode and optionally write checkpoint/reports."""
+    return manager.nonproject_run_step(
+        session_ref=session_ref,
+        step="synth_design",
+        part=part,
+        top=top,
+        checkpoint_name=checkpoint_name,
+        report_types=report_types if report_types is not None else ["utilization", "drc"],
+        extra_args=extra_args,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+@mcp.tool()
+def vivado_nonproject_opt_design(
+    session_ref: str,
+    checkpoint_name: str | None = "opt_design.dcp",
+    report_types: list[Literal["timing_summary", "utilization", "drc", "methodology", "messages"]] | None = None,
+    extra_args: dict[str, object] | None = None,
+    timeout_seconds: int = 3600,
+) -> dict[str, object]:
+    """Run opt_design in Non-project Mode and optionally write checkpoint/reports."""
+    return manager.nonproject_run_step(
+        session_ref=session_ref,
+        step="opt_design",
+        checkpoint_name=checkpoint_name,
+        report_types=report_types if report_types is not None else ["drc"],
+        extra_args=extra_args,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+@mcp.tool()
+def vivado_nonproject_place_design(
+    session_ref: str,
+    checkpoint_name: str | None = "place_design.dcp",
+    report_types: list[Literal["timing_summary", "utilization", "drc", "methodology", "messages"]] | None = None,
+    extra_args: dict[str, object] | None = None,
+    timeout_seconds: int = 7200,
+) -> dict[str, object]:
+    """Run place_design in Non-project Mode and optionally write checkpoint/reports."""
+    return manager.nonproject_run_step(
+        session_ref=session_ref,
+        step="place_design",
+        checkpoint_name=checkpoint_name,
+        report_types=report_types if report_types is not None else ["timing_summary", "utilization", "drc"],
+        extra_args=extra_args,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+@mcp.tool()
+def vivado_nonproject_route_design(
+    session_ref: str,
+    checkpoint_name: str | None = "route_design.dcp",
+    report_types: list[Literal["timing_summary", "timing_paths", "utilization", "drc", "power", "methodology", "messages"]] | None = None,
+    extra_args: dict[str, object] | None = None,
+    timeout_seconds: int = 7200,
+) -> dict[str, object]:
+    """Run route_design in Non-project Mode and optionally write checkpoint/reports."""
+    return manager.nonproject_run_step(
+        session_ref=session_ref,
+        step="route_design",
+        checkpoint_name=checkpoint_name,
+        report_types=report_types if report_types is not None else ["timing_summary", "utilization", "drc", "power", "methodology"],
+        extra_args=extra_args,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+@mcp.tool()
 def vivado_prepare_simulation(
     session_ref: str,
     fileset: str = "sim_1",

@@ -83,6 +83,22 @@ def test_command_coverage_for_priority_cross_flow_commands() -> None:
     ]
     assert tcl_command_doc_topic("launch_simulation") == "simulation"
 
+    read_verilog = tcl_command_coverage("read_verilog")
+    assert read_verilog["coverage_status"] == "covered"
+    assert read_verilog["recommended_tools"] == ["vivado_nonproject_read_sources"]
+    assert tcl_command_doc_topic("read_xdc") == "build"
+
+    synth_design = tcl_command_coverage("synth_design")
+    assert synth_design["coverage_status"] == "covered"
+    assert synth_design["recommended_tools"] == ["vivado_nonproject_synth_design"]
+
+    route_design = tcl_command_coverage("route_design")
+    assert route_design["coverage_status"] == "covered"
+    assert route_design["recommended_tools"] == ["vivado_nonproject_route_design"]
+
+    write_checkpoint = tcl_command_coverage("write_checkpoint")
+    assert "vivado_nonproject_route_design" in write_checkpoint["recommended_tools"]
+
     create_ip = tcl_command_coverage("create_ip")
     assert create_ip["coverage_status"] == "covered"
     assert create_ip["recommended_tools"] == ["vivado_create_ip", "vivado_ip_catalog_search"]

@@ -129,7 +129,9 @@ COMMAND_DOC_TOPICS: dict[str, str] = {
     "open_hw_manager": "hardware",
     "open_project": "project",
     "program_hw_devices": "hardware",
+    "read_vhdl": "build",
     "read_verilog": "build",
+    "read_xdc": "build",
     "remove_files": "project",
     "report_drc": "reports",
     "report_messages": "reports",
@@ -143,8 +145,12 @@ COMMAND_DOC_TOPICS: dict[str, str] = {
     "set_input_delay": "constraints",
     "set_output_delay": "constraints",
     "set_property": "project",
+    "opt_design": "build",
+    "place_design": "build",
+    "route_design": "build",
     "synth_design": "build",
     "validate_bd_design": "bd",
+    "write_checkpoint": "build",
 }
 
 
@@ -234,6 +240,59 @@ COMMAND_COVERAGE: dict[str, dict[str, object]] = {
         "recommended_tools": ["vivado_prepare_simulation", "vivado_launch_simulation", "vivado_analyze_xsim_logs"],
         "recommendation": "prefer_structured_tool",
         "notes": "Use structured simulation tools so the simulation fileset, mode, generated logs, and parsed diagnostics are captured.",
+    },
+    "read_verilog": {
+        "coverage_status": "covered",
+        "recommended_tools": ["vivado_nonproject_read_sources"],
+        "recommendation": "prefer_structured_tool",
+        "notes": "Use structured Non-project read so source paths, include dirs, defines, and library are validated and summarized.",
+    },
+    "read_vhdl": {
+        "coverage_status": "covered",
+        "recommended_tools": ["vivado_nonproject_read_sources"],
+        "recommendation": "prefer_structured_tool",
+        "notes": "Use structured Non-project read so VHDL files and library are validated and summarized.",
+    },
+    "read_xdc": {
+        "coverage_status": "covered",
+        "recommended_tools": ["vivado_nonproject_read_sources"],
+        "recommendation": "prefer_structured_tool",
+        "notes": "Use structured Non-project read so XDC paths are validated and summarized with the design sources.",
+    },
+    "synth_design": {
+        "coverage_status": "covered",
+        "recommended_tools": ["vivado_nonproject_synth_design"],
+        "recommendation": "prefer_structured_tool",
+        "notes": "Use structured Non-project synthesis so top/part, checkpoints, reports, and artifacts are captured.",
+    },
+    "opt_design": {
+        "coverage_status": "covered",
+        "recommended_tools": ["vivado_nonproject_opt_design"],
+        "recommendation": "prefer_structured_tool",
+        "notes": "Use structured Non-project optimization to write checkpoint/report artifacts consistently.",
+    },
+    "place_design": {
+        "coverage_status": "covered",
+        "recommended_tools": ["vivado_nonproject_place_design"],
+        "recommendation": "prefer_structured_tool",
+        "notes": "Use structured Non-project placement to capture checkpoint and placement diagnostics reports.",
+    },
+    "route_design": {
+        "coverage_status": "covered",
+        "recommended_tools": ["vivado_nonproject_route_design"],
+        "recommendation": "prefer_structured_tool",
+        "notes": "Use structured Non-project routing to capture final checkpoint and timing/utilization/DRC/power/methodology reports.",
+    },
+    "write_checkpoint": {
+        "coverage_status": "covered",
+        "recommended_tools": [
+            "vivado_nonproject_synth_design",
+            "vivado_nonproject_opt_design",
+            "vivado_nonproject_place_design",
+            "vivado_nonproject_route_design",
+        ],
+        "recommendation": "prefer_structured_tool",
+        "notes": "Structured Non-project step tools write checkpoints into session artifacts by checkpoint_name.",
     },
     "create_clock": {
         "coverage_status": "raw_tcl",
@@ -423,7 +482,7 @@ def tcl_command_doc_topic(command: str) -> str:
         return "reports"
     if normalized.startswith(("open_hw", "program_hw", "connect_hw", "get_hw")):
         return "hardware"
-    if normalized in {"read_verilog", "read_vhdl", "synth_design", "opt_design", "place_design", "route_design"}:
+    if normalized in {"read_verilog", "read_vhdl", "read_xdc", "synth_design", "opt_design", "place_design", "route_design", "write_checkpoint"}:
         return "build"
     return "tcl"
 

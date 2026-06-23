@@ -169,6 +169,21 @@ def help_topic(topic: str | None = None) -> dict[str, object]:
             ],
             "related_resources": ["vivado://skills/project-build-flow", "vivado://official-docs/index"],
         }
+    if normalized in {"non-project", "nonproject", "non-project-flow", "read-verilog", "synth-design", "opt-design", "place-design", "route-design"}:
+        return {
+            "topic": "nonproject_flow",
+            "summary": "Run Vivado Non-project Mode flows by reading RTL/XDC, executing synth/opt/place/route steps, and writing checkpoints and reports as session artifacts.",
+            "recommended_tools": [
+                "vivado_nonproject_read_sources",
+                "vivado_nonproject_synth_design",
+                "vivado_nonproject_opt_design",
+                "vivado_nonproject_place_design",
+                "vivado_nonproject_route_design",
+                "vivado_analyze_reports",
+                "vivado_search_official_docs",
+            ],
+            "related_resources": ["vivado://skills/project-build-flow", "vivado://official-docs/index"],
+        }
     if normalized in {
         "fileset",
         "filesets",
@@ -311,6 +326,32 @@ def suggest_next_steps(
                 {"tool": "vivado_analyze_xsim_logs", "why": "Parse simulation logs into severity counts, categories, and first actionable diagnostics."},
                 {"tool": "vivado_describe_fileset", "why": "Inspect the simulation fileset when compile order, library, or top selection looks wrong."},
                 {"tool": "vivado_search_official_docs", "why": "Use UG900/UG835/UG896 guidance for simulation modes, scripts, and IP simulation models."},
+            ],
+            "related_resources": ["vivado://skills/project-build-flow", "vivado://official-docs/index"],
+        }
+    if any(
+        word in text
+        for word in (
+            "non-project",
+            "nonproject",
+            "read_verilog",
+            "read_vhdl",
+            "read_xdc",
+            "synth_design",
+            "opt_design",
+            "place_design",
+            "route_design",
+            "write_checkpoint",
+        )
+    ):
+        return {
+            "recommendations": [
+                {"tool": "vivado_nonproject_read_sources", "why": "Read RTL and XDC files under path policy before running Non-project Mode steps."},
+                {"tool": "vivado_nonproject_synth_design", "why": "Run synth_design with explicit top/part and optional checkpoint/reports."},
+                {"tool": "vivado_nonproject_opt_design", "why": "Run opt_design and save an intermediate checkpoint when implementation continues."},
+                {"tool": "vivado_nonproject_place_design", "why": "Run place_design with timing/utilization/DRC reports for placement diagnostics."},
+                {"tool": "vivado_nonproject_route_design", "why": "Run route_design and collect final timing, utilization, DRC, power, and methodology reports."},
+                {"tool": "vivado_search_official_docs", "why": "Use UG892/UG894/UG901/UG904/UG906 guidance for Non-project Mode scripts and reports."},
             ],
             "related_resources": ["vivado://skills/project-build-flow", "vivado://official-docs/index"],
         }

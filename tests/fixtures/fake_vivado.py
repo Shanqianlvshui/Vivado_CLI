@@ -133,6 +133,48 @@ def _result_for(body: str) -> str:
         return f"simulation_launch={path}"
     if "simulation_prepared=" in body or "create_fileset -type {simulation}" in body:
         return "simulation_prepared=sim_1"
+    nonproject_read_match = re.search(r"set mcp_nonproject_file \{([^}]+)\}", body)
+    if nonproject_read_match:
+        path = Path(nonproject_read_match.group(1))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "\n".join(
+                [
+                    "file\tverilog\tC:/fake/top.v\txil_defaultlib",
+                    "file\tsystemverilog\tC:/fake/tb.sv\txil_defaultlib",
+                    "constraint\tC:/fake/timing.xdc\tglobal",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        return f"nonproject_sources={path}"
+    nonproject_step_match = re.search(r"set mcp_nonproject_step_file \{([^}]+)\}", body)
+    if nonproject_step_match:
+        path = Path(nonproject_step_match.group(1))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        step_match = re.search(r"mcp_put \$f step \{([^}]+)\}", body)
+        step = step_match.group(1) if step_match else "synth_design"
+        checkpoint_match = re.search(r"write_checkpoint -force \{([^}]+)\}", body)
+        if checkpoint_match:
+            checkpoint_path = Path(checkpoint_match.group(1))
+            checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+            checkpoint_path.write_text("FAKE DCP\n", encoding="utf-8")
+        for report_path in re.findall(r"-file \{([^}]+\.rpt)\}", body):
+            _write_fake_report(Path(report_path), body)
+        rows = [
+            f"step\t{step}\tok\t",
+            "part\txc7a35tcpg236-1",
+            "top\ttop",
+        ]
+        if checkpoint_match:
+            rows.append(f"checkpoint\t{step}\t{checkpoint_match.group(1)}")
+        for report_path in re.findall(r"-file \{([^}]+\.rpt)\}", body):
+            report_type = "utilization" if "util" in report_path else "drc"
+            rows.append(f"report\t{report_type}\t{report_path}")
+        rows.append("")
+        path.write_text("\n".join(rows), encoding="utf-8")
+        return f"nonproject_step={path}"
     if "launch_runs" in body:
         return "status=complete"
     summary_match = re.search(r"set mcp_summary_file \{([^}]+)\}", body)
@@ -288,24 +330,28 @@ def _result_for(body: str) -> str:
     report_match = re.search(r"-file \{([^}]+)\}", body)
     if report_match:
         path = Path(report_match.group(1))
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if "report_timing_summary" in body:
-            text = "FAKE TIMING REPORT\nWNS(ns) -0.125\nTNS(ns) -1.250\nFailing Endpoints: 4\n"
-        elif "report_utilization" in body:
-            text = "FAKE UTILIZATION REPORT\n| DSPs | 95 | 100 | 95.0 |\n| CLB LUTs | 1,234 | 10,000 | 12.34 |\n"
-        elif "report_drc" in body:
-            text = "FAKE DRC REPORT\nERROR: [DRC NSTD-1] Unspecified I/O Standard\n"
-        elif "report_power" in body:
-            text = "FAKE POWER REPORT\nTotal On-Chip Power (W) 7.500\nDynamic (W) 6.000\nDevice Static (W) 1.500\n"
-        elif "report_methodology" in body:
-            text = "FAKE METHODOLOGY REPORT\nCRITICAL WARNING: [METHODOLOGY TIMING-1] Review clocks\n"
-        else:
-            text = "FAKE REPORT\nWNS 0.000\n"
-        path.write_text(text, encoding="utf-8")
+        _write_fake_report(path, body)
         return f"report={path}"
     if "vivado_mcp_bridge_forever" in body:
         return "stopping"
     return "ok"
+
+
+def _write_fake_report(path: Path, body: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if "report_timing_summary" in body:
+        text = "FAKE TIMING REPORT\nWNS(ns) -0.125\nTNS(ns) -1.250\nFailing Endpoints: 4\n"
+    elif "report_utilization" in body:
+        text = "FAKE UTILIZATION REPORT\n| DSPs | 95 | 100 | 95.0 |\n| CLB LUTs | 1,234 | 10,000 | 12.34 |\n"
+    elif "report_drc" in body:
+        text = "FAKE DRC REPORT\nERROR: [DRC NSTD-1] Unspecified I/O Standard\n"
+    elif "report_power" in body:
+        text = "FAKE POWER REPORT\nTotal On-Chip Power (W) 7.500\nDynamic (W) 6.000\nDevice Static (W) 1.500\n"
+    elif "report_methodology" in body:
+        text = "FAKE METHODOLOGY REPORT\nCRITICAL WARNING: [METHODOLOGY TIMING-1] Review clocks\n"
+    else:
+        text = "FAKE REPORT\nWNS 0.000\n"
+    path.write_text(text, encoding="utf-8")
 
 
 if __name__ == "__main__":

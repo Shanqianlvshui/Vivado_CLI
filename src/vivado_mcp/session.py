@@ -1067,6 +1067,131 @@ class VivadoSessionManager:
             "analysis_artifact_uri": artifact_uri(session_ref, output_path.relative_to(running.record.session_dir).as_posix()),
         }
 
+    def nonproject_read_sources(
+        self,
+        *,
+        session_ref: str,
+        verilog: list[str] | None = None,
+        systemverilog: list[str] | None = None,
+        vhdl: list[str] | None = None,
+        xdc: list[str] | None = None,
+        include_dirs: list[str] | None = None,
+        defines: list[str] | None = None,
+        library: str | None = None,
+        timeout_seconds: int = 120,
+    ) -> dict[str, object]:
+        from .nonproject_summary import parse_nonproject_summary
+        from .tcl import nonproject_read_sources_tcl
+
+        verilog_paths = [self.path_policy.require_under_roots(path, label="verilog", must_exist=True) for path in verilog or []]
+        systemverilog_paths = [
+            self.path_policy.require_under_roots(path, label="systemverilog", must_exist=True)
+            for path in systemverilog or []
+        ]
+        vhdl_paths = [self.path_policy.require_under_roots(path, label="vhdl", must_exist=True) for path in vhdl or []]
+        xdc_paths = [self.path_policy.require_under_roots(path, label="xdc", must_exist=True) for path in xdc or []]
+        include_paths = [
+            self.path_policy.require_under_roots(path, label="include_dir", must_exist=False) for path in include_dirs or []
+        ]
+        running = self._get(session_ref)
+        summaries_dir = running.record.session_dir / "summaries"
+        summaries_dir.mkdir(parents=True, exist_ok=True)
+        output_path = summaries_dir / f"nonproject_sources_{uuid.uuid4().hex[:8]}.tsv"
+        raw_result = self._submit_tcl(
+            running,
+            nonproject_read_sources_tcl(
+                output_path,
+                verilog=verilog_paths,
+                systemverilog=systemverilog_paths,
+                vhdl=vhdl_paths,
+                xdc=xdc_paths,
+                include_dirs=include_paths,
+                defines=defines,
+                library=library,
+            ),
+            timeout_seconds=timeout_seconds,
+        )
+        result = _result_to_dict(raw_result, expect_destructive=False)
+        result["summary_path"] = str(output_path)
+        result["summary_artifact_uri"] = artifact_uri(session_ref, output_path.relative_to(running.record.session_dir).as_posix())
+        if output_path.exists():
+            result["nonproject"] = parse_nonproject_summary(output_path)
+        return result
+
+    def nonproject_run_step(
+        self,
+        *,
+        session_ref: str,
+        step: str,
+        part: str | None = None,
+        top: str | None = None,
+        checkpoint_name: str | None = None,
+        report_types: list[str] | None = None,
+        extra_args: dict[str, object] | None = None,
+        timeout_seconds: int = 3600,
+    ) -> dict[str, object]:
+        from .nonproject_summary import parse_nonproject_summary
+        from .report_parser import parse_report
+        from .tcl import nonproject_run_step_tcl
+
+        running = self._get(session_ref)
+        summaries_dir = running.record.session_dir / "summaries"
+        reports_dir = running.record.session_dir / "reports" / "nonproject"
+        checkpoints_dir = running.record.session_dir / "checkpoints"
+        summaries_dir.mkdir(parents=True, exist_ok=True)
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        checkpoints_dir.mkdir(parents=True, exist_ok=True)
+        output_path = summaries_dir / f"nonproject_{_safe_label(step)}_{uuid.uuid4().hex[:8]}.tsv"
+        checkpoint_path = None
+        if checkpoint_name is not None:
+            safe_checkpoint = self.path_policy.require_output_name(checkpoint_name, default_suffix=".dcp")
+            checkpoint_path = checkpoints_dir / safe_checkpoint
+        reports = {
+            report_type: reports_dir / f"{_safe_label(step)}_{report_type}_{uuid.uuid4().hex[:8]}.rpt"
+            for report_type in report_types or []
+        }
+        raw_result = self._submit_tcl(
+            running,
+            nonproject_run_step_tcl(
+                output_path,
+                step=step,
+                part=part,
+                top=top,
+                checkpoint_path=checkpoint_path,
+                reports=reports,
+                extra_args=extra_args,
+            ),
+            timeout_seconds=timeout_seconds,
+        )
+        result = _result_to_dict(raw_result, expect_destructive=False)
+        result["summary_path"] = str(output_path)
+        result["summary_artifact_uri"] = artifact_uri(session_ref, output_path.relative_to(running.record.session_dir).as_posix())
+        if output_path.exists():
+            result["nonproject"] = parse_nonproject_summary(output_path)
+        report_summaries: dict[str, dict[str, object]] = {}
+        report_artifacts: dict[str, dict[str, object]] = {}
+        for report_type, report_path in reports.items():
+            report_artifacts[report_type] = {
+                "report_path": str(report_path),
+                "report_artifact_uri": artifact_uri(session_ref, report_path.relative_to(running.record.session_dir).as_posix()),
+            }
+            if report_path.exists():
+                report_summaries[report_type] = parse_report(
+                    report_type,
+                    report_path.read_text(encoding="utf-8", errors="replace"),
+                )
+        if report_artifacts:
+            result["reports"] = report_artifacts
+        if report_summaries:
+            result["report_summaries"] = report_summaries
+        if checkpoint_path is not None:
+            result["checkpoint_path"] = str(checkpoint_path)
+            result["checkpoint_artifact_uri"] = artifact_uri(
+                session_ref,
+                checkpoint_path.relative_to(running.record.session_dir).as_posix(),
+            )
+        return result
+
     def ip_catalog_search(
         self,
         *,
