@@ -30,6 +30,7 @@ async def test_mcp_server_lists_core_tools() -> None:
                 "vivado_list_official_references",
                 "vivado_get_official_reference",
                 "vivado_official_reference_guide",
+                "vivado_search_official_docs",
             }.issubset(tool_names)
 
 

@@ -15,6 +15,7 @@ from .official_docs import (
     official_doc_resource,
     official_docs_index,
     official_reference_guide,
+    search_official_docs,
 )
 from .session import VivadoSessionManager
 from .vivado_locator import check_vivado
@@ -399,6 +400,26 @@ def vivado_get_official_reference(doc_id: str) -> dict[str, object]:
 def vivado_official_reference_guide(topic: str | None = None) -> dict[str, object]:
     """Return AI guidance for which AMD official Vivado references apply to a topic."""
     return official_reference_guide(topic)
+
+
+@mcp.tool()
+def vivado_search_official_docs(
+    query: str,
+    doc_id: str | None = None,
+    topic: str | None = None,
+    max_results: int = 8,
+    context_chars: int = 260,
+    timeout_seconds: int = 120,
+) -> dict[str, object]:
+    """Search local AMD official Vivado PDFs and return short supporting snippets."""
+    return search_official_docs(
+        query=query,
+        doc_id=doc_id,
+        topic=topic,
+        max_results=max_results,
+        context_chars=context_chars,
+        timeout_seconds=timeout_seconds,
+    )
 
 
 @mcp.resource("vivado://help/index", mime_type="text/markdown")

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import os
+import re
+import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
 
 DOCS_ROOT_ENV = "VIVADO_MCP_DOCS_ROOT"
+PDFTOTEXT_ENV = "VIVADO_MCP_PDFTOTEXT"
 DEFAULT_LOCAL_DOCS_ROOT = r"C:\Database\FPGA\Vivado_docs"
 
 
@@ -379,9 +383,9 @@ OFFICIAL_REFERENCES: tuple[OfficialReference, ...] = (
         doc_id="UG973",
         title="Vivado Design Suite User Guide: Release Notes, Installation, and Licensing",
         url="https://docs.amd.com/r/en-US/ug973-vivado-release-notes-install-license",
-        version="Latest AMD online reference",
-        release_date="See AMD documentation",
-        scope="Vivado installation, licensing, platform support, release notes, known issues, environment setup, and tool availability.",
+        version="Latest AMD online reference; local PDF candidate is UG973 2020.1 English",
+        release_date="Current online hub; local PDF release 2020-06-03",
+        scope="Vivado installation, licensing, platform support, release notes, known issues, environment setup, and tool availability. AMD now routes the current online entry through DH233; `ug973.pdf` is the latest UG973 PDF found in KHub.",
         topics=("installation", "licensing", "release-notes", "environment", "platform", "versions"),
         use_when=(
             "Diagnosing installation, licensing, or version issues.",
@@ -572,6 +576,82 @@ def get_official_reference(doc_id: str) -> dict[str, object]:
     return result
 
 
+def search_official_docs(
+    query: str,
+    doc_id: str | None = None,
+    topic: str | None = None,
+    max_results: int = 8,
+    context_chars: int = 260,
+    timeout_seconds: int = 120,
+) -> dict[str, object]:
+    normalized_query = query.strip()
+    terms = _search_terms(normalized_query)
+    if not terms:
+        return {
+            "ok": False,
+            "query": query,
+            "error": "query must contain at least one searchable term",
+            "results": [],
+        }
+
+    references = _references_for_search(doc_id=doc_id, topic=topic)
+    results: list[dict[str, object]] = []
+    errors: list[dict[str, str]] = []
+    skipped: list[dict[str, object]] = []
+
+    for reference in references:
+        available_paths = [Path(path) for path in reference.to_dict()["available_local_paths"]]
+        if not available_paths:
+            skipped.append(
+                {
+                    "doc_id": reference.doc_id,
+                    "reason": "no local file found",
+                    "local_path_candidates": _local_path_candidates(reference.local_filenames),
+                }
+            )
+            continue
+
+        for path in available_paths:
+            try:
+                text = _read_document_text(path, timeout_seconds=timeout_seconds)
+            except Exception as exc:
+                errors.append({"doc_id": reference.doc_id, "path": str(path), "error": str(exc)})
+                continue
+
+            match = _match_document_text(text, terms=terms, context_chars=context_chars)
+            if match is None:
+                continue
+            results.append(
+                {
+                    "doc_id": reference.doc_id,
+                    "title": reference.title,
+                    "url": reference.url,
+                    "resource_uri": reference.resource_uri,
+                    "local_path": str(path),
+                    "score": match["score"],
+                    "match_count": match["match_count"],
+                    "snippets": match["snippets"],
+                }
+            )
+
+    results.sort(key=lambda row: (-int(row["score"]), str(row["doc_id"])))
+    limited_results = results[: max(1, max_results)]
+    return {
+        "ok": True,
+        "query": normalized_query,
+        "terms": terms,
+        "doc_id": doc_id,
+        "topic": normalize_topic(topic),
+        "local_docs_root": local_docs_root(),
+        "pdftotext": _pdftotext_path(),
+        "searched_documents": len(references),
+        "result_count": len(limited_results),
+        "results": limited_results,
+        "skipped": skipped,
+        "errors": errors,
+    }
+
+
 def official_reference_guide(topic: str | None = None) -> dict[str, object]:
     topic_key = normalize_topic(topic) or "tcl"
     guide = TOPIC_GUIDES.get(topic_key)
@@ -691,3 +771,98 @@ def _reference_text(reference: OfficialReference) -> str:
 def _local_path_candidates(filenames: tuple[str, ...]) -> list[str]:
     root = Path(local_docs_root())
     return [str(root / filename) for filename in filenames]
+
+
+def _references_for_search(doc_id: str | None, topic: str | None) -> list[OfficialReference]:
+    if doc_id:
+        return [_find_reference(doc_id)]
+    topic_key = normalize_topic(topic)
+    if topic_key and topic_key in TOPIC_GUIDES:
+        doc_ids = set(TOPIC_GUIDES[topic_key]["doc_ids"])
+        return [reference for reference in OFFICIAL_REFERENCES if reference.doc_id in doc_ids]
+    return list(OFFICIAL_REFERENCES)
+
+
+def _search_terms(query: str) -> list[str]:
+    return [term.lower() for term in re.findall(r"[A-Za-z0-9_.*:/-]+", query) if len(term.strip()) >= 2]
+
+
+def _read_document_text(path: Path, timeout_seconds: int = 120) -> str:
+    if path.suffix.lower() in {".txt", ".md", ".html", ".htm"}:
+        return path.read_text(encoding="utf-8", errors="replace")
+    if path.suffix.lower() == ".pdf":
+        return _read_pdf_text(path, timeout_seconds=timeout_seconds)
+    raise ValueError(f"unsupported official document file type: {path.suffix}")
+
+
+def _read_pdf_text(path: Path, timeout_seconds: int = 120) -> str:
+    cached = _pdf_text_cache_path(path)
+    if cached is not None and cached.is_file():
+        return cached.read_text(encoding="utf-8", errors="replace")
+
+    exe = _pdftotext_path()
+    if not exe:
+        raise RuntimeError(f"`pdftotext` was not found. Set {PDFTOTEXT_ENV} or add Poppler to PATH.")
+
+    completed = subprocess.run(
+        [exe, "-layout", "-enc", "UTF-8", str(path), "-"],
+        check=False,
+        capture_output=True,
+        timeout=timeout_seconds,
+    )
+    if completed.returncode != 0:
+        stderr = completed.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"pdftotext failed for {path}: {stderr or completed.returncode}")
+    text = completed.stdout.decode("utf-8", errors="replace")
+    if cached is not None:
+        try:
+            cached.parent.mkdir(parents=True, exist_ok=True)
+            cached.write_text(text, encoding="utf-8")
+        except OSError:
+            pass
+    return text
+
+
+def _pdftotext_path() -> str | None:
+    configured = os.environ.get(PDFTOTEXT_ENV)
+    if configured:
+        return configured
+    return shutil.which("pdftotext")
+
+
+def _pdf_text_cache_path(path: Path) -> Path | None:
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", path.name)
+    return Path(local_docs_root()) / ".vivado_mcp_text_cache" / f"{safe_name}.{stat.st_size}.{stat.st_mtime_ns}.txt"
+
+
+def _match_document_text(text: str, *, terms: list[str], context_chars: int) -> dict[str, object] | None:
+    lowered = text.lower()
+    term_counts = {term: lowered.count(term) for term in terms}
+    if not all(count > 0 for count in term_counts.values()):
+        return None
+
+    positions = sorted((lowered.find(term), term) for term in terms if lowered.find(term) >= 0)
+    snippets = []
+    seen_snippets: set[str] = set()
+    for position, term in positions[:3]:
+        snippet = _snippet(text, position, context_chars=context_chars)
+        if snippet in seen_snippets:
+            continue
+        seen_snippets.add(snippet)
+        snippets.append({"term": term, "text": snippet})
+    score = sum(term_counts.values()) + (10 * len(terms))
+    return {"score": score, "match_count": sum(term_counts.values()), "snippets": snippets}
+
+
+def _snippet(text: str, position: int, context_chars: int) -> str:
+    radius = max(80, min(context_chars, 600))
+    start = max(0, position - radius)
+    end = min(len(text), position + radius)
+    prefix = "..." if start > 0 else ""
+    suffix = "..." if end < len(text) else ""
+    body = re.sub(r"\s+", " ", text[start:end]).strip()
+    return f"{prefix}{body}{suffix}"
