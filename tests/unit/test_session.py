@@ -135,6 +135,23 @@ def test_nonproject_workflow_reads_sources_and_runs_steps(tmp_path: Path) -> Non
     started = manager.start_session(vivado_path=str(wrapper), open_gui=False)
     session_ref = str(started["session_ref"])
 
+    audit_before = manager.nonproject_audit(session_ref=session_ref, expected_top="top", timeout_seconds=5)
+    assert audit_before["ok"] is False
+    assert "nonproject.sources_missing" in {issue["issue_id"] for issue in audit_before["issues"]}
+
+    dry_read = manager.nonproject_read_sources(
+        session_ref=session_ref,
+        verilog=[str(top_v)],
+        systemverilog=[str(tb_sv)],
+        xdc=[str(xdc)],
+        library="xil_defaultlib",
+        timeout_seconds=5,
+        dry_run=True,
+    )
+    assert dry_read["dry_run"] is True
+    assert dry_read["plan"]["actions"][0]["action"] == "read_verilog"
+    assert "read_verilog" in dry_read["plan"]["tcl_preview"]
+
     read = manager.nonproject_read_sources(
         session_ref=session_ref,
         verilog=[str(top_v)],
@@ -146,6 +163,22 @@ def test_nonproject_workflow_reads_sources_and_runs_steps(tmp_path: Path) -> Non
     assert read["ok"] is True
     assert read["nonproject"]["file_count"] == 2
     assert read["nonproject"]["constraint_count"] == 1
+    assert read["nonproject"]["audit"]["ok"] is False
+
+    dry_synth = manager.nonproject_run_step(
+        session_ref=session_ref,
+        step="synth_design",
+        part="xc7a35tcpg236-1",
+        top="top",
+        checkpoint_name="synth.dcp",
+        report_types=["utilization", "drc"],
+        timeout_seconds=5,
+        dry_run=True,
+    )
+    assert dry_synth["dry_run"] is True
+    assert dry_synth["prerequisites"]["ok"] is True
+    assert dry_synth["plan"]["checkpoint"]["name"] == "synth.dcp"
+    assert "synth_design" in dry_synth["plan"]["tcl_preview"]
 
     synth = manager.nonproject_run_step(
         session_ref=session_ref,

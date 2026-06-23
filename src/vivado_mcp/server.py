@@ -656,8 +656,9 @@ def vivado_nonproject_read_sources(
     defines: list[str] | None = None,
     library: str | None = None,
     timeout_seconds: int = 120,
+    dry_run: bool = False,
 ) -> dict[str, object]:
-    """Read RTL and XDC files into a managed Non-project Mode design."""
+    """Read RTL/XDC files into Non-project Mode, or return a dry-run plan."""
     return manager.nonproject_read_sources(
         session_ref=session_ref,
         verilog=verilog,
@@ -667,6 +668,23 @@ def vivado_nonproject_read_sources(
         include_dirs=include_dirs,
         defines=defines,
         library=library,
+        timeout_seconds=timeout_seconds,
+        dry_run=dry_run,
+    )
+
+
+@mcp.tool()
+def vivado_nonproject_audit(
+    session_ref: str,
+    expected_top: str | None = None,
+    expected_part: str | None = None,
+    timeout_seconds: int = 120,
+) -> dict[str, object]:
+    """Audit recorded Non-project Mode inputs, stage, prerequisites, and recommended next tool."""
+    return manager.nonproject_audit(
+        session_ref=session_ref,
+        expected_top=expected_top,
+        expected_part=expected_part,
         timeout_seconds=timeout_seconds,
     )
 
@@ -680,8 +698,9 @@ def vivado_nonproject_synth_design(
     report_types: list[Literal["timing_summary", "utilization", "drc", "methodology", "messages"]] | None = None,
     extra_args: dict[str, object] | None = None,
     timeout_seconds: int = 3600,
+    dry_run: bool = False,
 ) -> dict[str, object]:
-    """Run synth_design in Non-project Mode and optionally write checkpoint/reports."""
+    """Run synth_design in Non-project Mode, or return prerequisites and a dry-run plan."""
     return manager.nonproject_run_step(
         session_ref=session_ref,
         step="synth_design",
@@ -691,6 +710,7 @@ def vivado_nonproject_synth_design(
         report_types=report_types if report_types is not None else ["utilization", "drc"],
         extra_args=extra_args,
         timeout_seconds=timeout_seconds,
+        dry_run=dry_run,
     )
 
 
@@ -701,8 +721,9 @@ def vivado_nonproject_opt_design(
     report_types: list[Literal["timing_summary", "utilization", "drc", "methodology", "messages"]] | None = None,
     extra_args: dict[str, object] | None = None,
     timeout_seconds: int = 3600,
+    dry_run: bool = False,
 ) -> dict[str, object]:
-    """Run opt_design in Non-project Mode and optionally write checkpoint/reports."""
+    """Run opt_design in Non-project Mode, or return prerequisites and a dry-run plan."""
     return manager.nonproject_run_step(
         session_ref=session_ref,
         step="opt_design",
@@ -710,6 +731,7 @@ def vivado_nonproject_opt_design(
         report_types=report_types if report_types is not None else ["drc"],
         extra_args=extra_args,
         timeout_seconds=timeout_seconds,
+        dry_run=dry_run,
     )
 
 
@@ -720,8 +742,9 @@ def vivado_nonproject_place_design(
     report_types: list[Literal["timing_summary", "utilization", "drc", "methodology", "messages"]] | None = None,
     extra_args: dict[str, object] | None = None,
     timeout_seconds: int = 7200,
+    dry_run: bool = False,
 ) -> dict[str, object]:
-    """Run place_design in Non-project Mode and optionally write checkpoint/reports."""
+    """Run place_design in Non-project Mode, or return prerequisites and a dry-run plan."""
     return manager.nonproject_run_step(
         session_ref=session_ref,
         step="place_design",
@@ -729,6 +752,7 @@ def vivado_nonproject_place_design(
         report_types=report_types if report_types is not None else ["timing_summary", "utilization", "drc"],
         extra_args=extra_args,
         timeout_seconds=timeout_seconds,
+        dry_run=dry_run,
     )
 
 
@@ -739,8 +763,9 @@ def vivado_nonproject_route_design(
     report_types: list[Literal["timing_summary", "timing_paths", "utilization", "drc", "power", "methodology", "messages"]] | None = None,
     extra_args: dict[str, object] | None = None,
     timeout_seconds: int = 7200,
+    dry_run: bool = False,
 ) -> dict[str, object]:
-    """Run route_design in Non-project Mode and optionally write checkpoint/reports."""
+    """Run route_design in Non-project Mode, or return prerequisites and a dry-run plan."""
     return manager.nonproject_run_step(
         session_ref=session_ref,
         step="route_design",
@@ -748,6 +773,7 @@ def vivado_nonproject_route_design(
         report_types=report_types if report_types is not None else ["timing_summary", "utilization", "drc", "power", "methodology"],
         extra_args=extra_args,
         timeout_seconds=timeout_seconds,
+        dry_run=dry_run,
     )
 
 

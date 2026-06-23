@@ -175,8 +175,9 @@ def help_topic(topic: str | None = None) -> dict[str, object]:
     if normalized in {"non-project", "nonproject", "non-project-flow", "read-verilog", "synth-design", "opt-design", "place-design", "route-design"}:
         return {
             "topic": "nonproject_flow",
-            "summary": "Run Vivado Non-project Mode flows by reading RTL/XDC, executing synth/opt/place/route steps, and writing checkpoints and reports as session artifacts.",
+            "summary": "Run Vivado Non-project Mode flows by auditing recorded state, dry-running read/step plans, executing synth/opt/place/route steps, and writing checkpoints/reports as session artifacts.",
             "recommended_tools": [
+                "vivado_nonproject_audit",
                 "vivado_nonproject_read_sources",
                 "vivado_nonproject_synth_design",
                 "vivado_nonproject_opt_design",
@@ -363,11 +364,12 @@ def suggest_next_steps(
     ):
         return {
             "recommendations": [
-                {"tool": "vivado_nonproject_read_sources", "why": "Read RTL and XDC files under path policy before running Non-project Mode steps."},
-                {"tool": "vivado_nonproject_synth_design", "why": "Run synth_design with explicit top/part and optional checkpoint/reports."},
-                {"tool": "vivado_nonproject_opt_design", "why": "Run opt_design and save an intermediate checkpoint when implementation continues."},
-                {"tool": "vivado_nonproject_place_design", "why": "Run place_design with timing/utilization/DRC reports for placement diagnostics."},
-                {"tool": "vivado_nonproject_route_design", "why": "Run route_design and collect final timing, utilization, DRC, power, and methodology reports."},
+                {"tool": "vivado_nonproject_audit", "why": "Inspect recorded Non-project inputs, current stage, missing prerequisites, and recommended next tool."},
+                {"tool": "vivado_nonproject_read_sources", "why": "Dry-run/read RTL and XDC files under path policy before running Non-project Mode steps."},
+                {"tool": "vivado_nonproject_synth_design", "why": "Dry-run/run synth_design with explicit top/part and optional checkpoint/reports."},
+                {"tool": "vivado_nonproject_opt_design", "why": "Dry-run/run opt_design and save an intermediate checkpoint when implementation continues."},
+                {"tool": "vivado_nonproject_place_design", "why": "Dry-run/run place_design with timing/utilization/DRC reports for placement diagnostics."},
+                {"tool": "vivado_nonproject_route_design", "why": "Dry-run/run route_design and collect final timing, utilization, DRC, power, and methodology reports."},
                 {"tool": "vivado_search_official_docs", "why": "Use UG892/UG894/UG901/UG904/UG906 guidance for Non-project Mode scripts and reports."},
             ],
             "related_resources": ["vivado://skills/project-build-flow", "vivado://official-docs/index"],

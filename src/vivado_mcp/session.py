@@ -1205,6 +1205,7 @@ class VivadoSessionManager:
         defines: list[str] | None = None,
         library: str | None = None,
         timeout_seconds: int = 120,
+        dry_run: bool = False,
     ) -> dict[str, object]:
         from .nonproject_summary import parse_nonproject_summary
         from .tcl import nonproject_read_sources_tcl
@@ -1223,18 +1224,39 @@ class VivadoSessionManager:
         summaries_dir = running.record.session_dir / "summaries"
         summaries_dir.mkdir(parents=True, exist_ok=True)
         output_path = summaries_dir / f"nonproject_sources_{uuid.uuid4().hex[:8]}.tsv"
+        script = nonproject_read_sources_tcl(
+            output_path,
+            verilog=verilog_paths,
+            systemverilog=systemverilog_paths,
+            vhdl=vhdl_paths,
+            xdc=xdc_paths,
+            include_dirs=include_paths,
+            defines=defines,
+            library=library,
+        )
+        if dry_run:
+            return {
+                "ok": True,
+                "session_ref": session_ref,
+                "dry_run": True,
+                "expect_destructive": False,
+                "summary_path": str(output_path),
+                "summary_artifact_uri": artifact_uri(session_ref, output_path.relative_to(running.record.session_dir).as_posix()),
+                "plan": _nonproject_read_plan(
+                    output_path=output_path,
+                    verilog=verilog_paths,
+                    systemverilog=systemverilog_paths,
+                    vhdl=vhdl_paths,
+                    xdc=xdc_paths,
+                    include_dirs=include_paths,
+                    defines=defines,
+                    library=library,
+                    tcl_preview=script,
+                ),
+            }
         raw_result = self._submit_tcl(
             running,
-            nonproject_read_sources_tcl(
-                output_path,
-                verilog=verilog_paths,
-                systemverilog=systemverilog_paths,
-                vhdl=vhdl_paths,
-                xdc=xdc_paths,
-                include_dirs=include_paths,
-                defines=defines,
-                library=library,
-            ),
+            script,
             timeout_seconds=timeout_seconds,
         )
         result = _result_to_dict(raw_result, expect_destructive=False)
@@ -1243,6 +1265,30 @@ class VivadoSessionManager:
         if output_path.exists():
             result["nonproject"] = parse_nonproject_summary(output_path)
         return result
+
+    def nonproject_audit(
+        self,
+        *,
+        session_ref: str,
+        expected_top: str | None = None,
+        expected_part: str | None = None,
+        timeout_seconds: int = 120,
+    ) -> dict[str, object]:
+        from .nonproject_summary import analyze_nonproject_audit
+
+        running = self._get(session_ref)
+        summary, source_paths = self._nonproject_state_for_running(running)
+        audit = analyze_nonproject_audit(summary, expected_top=expected_top, expected_part=expected_part)
+        audit["session_ref"] = session_ref
+        audit["summary_sources"] = [
+            {
+                "summary_path": str(path),
+                "summary_artifact_uri": artifact_uri(session_ref, path.relative_to(running.record.session_dir).as_posix()),
+            }
+            for path in source_paths
+        ]
+        audit["timeout_seconds"] = timeout_seconds
+        return audit
 
     def nonproject_run_step(
         self,
@@ -1255,8 +1301,9 @@ class VivadoSessionManager:
         report_types: list[str] | None = None,
         extra_args: dict[str, object] | None = None,
         timeout_seconds: int = 3600,
+        dry_run: bool = False,
     ) -> dict[str, object]:
-        from .nonproject_summary import parse_nonproject_summary
+        from .nonproject_summary import analyze_nonproject_audit, nonproject_step_prerequisites, parse_nonproject_summary
         from .report_parser import parse_report
         from .tcl import nonproject_run_step_tcl
 
@@ -1276,9 +1323,11 @@ class VivadoSessionManager:
             report_type: reports_dir / f"{_safe_label(step)}_{report_type}_{uuid.uuid4().hex[:8]}.rpt"
             for report_type in report_types or []
         }
-        raw_result = self._submit_tcl(
-            running,
-            nonproject_run_step_tcl(
+        summary_state, _summary_paths = self._nonproject_state_for_running(running)
+        prerequisites = nonproject_step_prerequisites(step, summary_state, part=part, top=top)
+        tcl_error = None
+        try:
+            script = nonproject_run_step_tcl(
                 output_path,
                 step=step,
                 part=part,
@@ -1286,12 +1335,46 @@ class VivadoSessionManager:
                 checkpoint_path=checkpoint_path,
                 reports=reports,
                 extra_args=extra_args,
-            ),
+            )
+        except ValueError as exc:
+            if not dry_run:
+                raise
+            script = ""
+            tcl_error = str(exc)
+        plan = _nonproject_step_plan(
+            output_path=output_path,
+            step=step,
+            part=part,
+            top=top,
+            checkpoint_path=checkpoint_path,
+            reports=reports,
+            extra_args=extra_args,
+            tcl_preview=script,
+        )
+        if tcl_error is not None:
+            plan["would_execute_tcl"] = False
+            plan["tcl_error"] = tcl_error
+        if dry_run:
+            return {
+                "ok": prerequisites["ok"] and tcl_error is None,
+                "session_ref": session_ref,
+                "dry_run": True,
+                "expect_destructive": False,
+                "summary_path": str(output_path),
+                "summary_artifact_uri": artifact_uri(session_ref, output_path.relative_to(running.record.session_dir).as_posix()),
+                "prerequisites": prerequisites,
+                "plan": plan,
+            }
+        raw_result = self._submit_tcl(
+            running,
+            script,
             timeout_seconds=timeout_seconds,
         )
         result = _result_to_dict(raw_result, expect_destructive=False)
         result["summary_path"] = str(output_path)
         result["summary_artifact_uri"] = artifact_uri(session_ref, output_path.relative_to(running.record.session_dir).as_posix())
+        result["prerequisites"] = prerequisites
+        result["plan"] = plan
         if output_path.exists():
             result["nonproject"] = parse_nonproject_summary(output_path)
         report_summaries: dict[str, dict[str, object]] = {}
@@ -1316,6 +1399,11 @@ class VivadoSessionManager:
                 session_ref,
                 checkpoint_path.relative_to(running.record.session_dir).as_posix(),
             )
+        merged_state, summary_paths = self._nonproject_state_for_running(running)
+        result["nonproject_audit"] = analyze_nonproject_audit(merged_state)
+        result["nonproject_summary_sources"] = [
+            artifact_uri(session_ref, path.relative_to(running.record.session_dir).as_posix()) for path in summary_paths
+        ]
         return result
 
     def ip_catalog_search(
@@ -1876,6 +1964,16 @@ class VivadoSessionManager:
         if output_path.exists():
             result["ips"] = parse_ip_list(output_path)
         return result
+
+    def _nonproject_state_for_running(self, running: "_RunningSession") -> tuple[dict[str, object], list[Path]]:
+        from .nonproject_summary import merge_nonproject_summaries, parse_nonproject_summary
+
+        summaries_dir = running.record.session_dir / "summaries"
+        if not summaries_dir.exists():
+            return merge_nonproject_summaries([]), []
+        paths = sorted((path for path in summaries_dir.glob("nonproject*.tsv") if path.is_file()), key=lambda path: path.stat().st_mtime)
+        summaries = [parse_nonproject_summary(path) for path in paths]
+        return merge_nonproject_summaries(summaries), paths
 
     def _artifact_index_for_running(self, running: "_RunningSession") -> dict[str, object]:
         artifacts = []
@@ -2461,6 +2559,98 @@ def _simulation_prepare_plan(
             {"tool": "vivado_simulation_audit", "why": "Audit simulation fileset, testbench, and IP output-product state before launch."},
             {"tool": "vivado_launch_simulation", "why": "Launch simulation after the dry-run plan is accepted."},
             {"tool": "vivado_analyze_xsim_logs", "why": "Parse xsim/xelab/xvlog/xvhdl logs after launch failures."},
+        ],
+    }
+
+
+def _nonproject_read_plan(
+    *,
+    output_path: Path,
+    verilog: list[Path],
+    systemverilog: list[Path],
+    vhdl: list[Path],
+    xdc: list[Path],
+    include_dirs: list[Path],
+    defines: list[str] | None,
+    library: str | None,
+    tcl_preview: str,
+) -> dict[str, object]:
+    actions: list[dict[str, object]] = []
+    if verilog:
+        actions.append({"action": "read_verilog", "paths": [str(path) for path in verilog], "library": library or ""})
+    if systemverilog:
+        actions.append({"action": "read_verilog", "mode": "systemverilog", "paths": [str(path) for path in systemverilog], "library": library or ""})
+    if vhdl:
+        actions.append({"action": "read_vhdl", "paths": [str(path) for path in vhdl], "library": library or ""})
+    if xdc:
+        actions.append({"action": "read_xdc", "paths": [str(path) for path in xdc], "scope": "global"})
+    if include_dirs:
+        actions.append({"action": "set_include_dirs", "paths": [str(path) for path in include_dirs]})
+    if defines:
+        actions.append({"action": "set_defines", "defines": defines})
+    return {
+        "operation": "nonproject_read_sources",
+        "actions": actions,
+        "summary_path": str(output_path),
+        "risk_level": "low",
+        "would_execute_tcl": bool(actions),
+        "tcl_preview": tcl_preview,
+        "recommended_docs": [
+            {"doc_id": "UG892", "title": "Vivado Design Suite User Guide: Design Flows Overview"},
+            {"doc_id": "UG894", "title": "Vivado Design Suite User Guide: Using Tcl Scripting"},
+            {"doc_id": "UG903", "title": "Vivado Design Suite User Guide: Using Constraints"},
+        ],
+        "recommendations": [
+            {"tool": "vivado_nonproject_audit", "why": "Inspect recorded inputs and missing part/top before synthesis."},
+            {"tool": "vivado_nonproject_synth_design", "why": "Run synthesis with explicit top and part after sources are loaded."},
+        ],
+    }
+
+
+def _nonproject_step_plan(
+    *,
+    output_path: Path,
+    step: str,
+    part: str | None,
+    top: str | None,
+    checkpoint_path: Path | None,
+    reports: dict[str, Path],
+    extra_args: dict[str, object] | None,
+    tcl_preview: str,
+) -> dict[str, object]:
+    action: dict[str, object] = {
+        "action": step,
+        "part": part or "",
+        "top": top or "",
+        "extra_args": extra_args or {},
+    }
+    checkpoint = {
+        "name": checkpoint_path.name if checkpoint_path else "",
+        "path": str(checkpoint_path) if checkpoint_path else "",
+    }
+    report_rows = [
+        {"type": report_type, "path": str(report_path)}
+        for report_type, report_path in reports.items()
+    ]
+    return {
+        "operation": "nonproject_run_step",
+        "step": step,
+        "actions": [action],
+        "summary_path": str(output_path),
+        "checkpoint": checkpoint,
+        "reports": report_rows,
+        "risk_level": "medium" if step in {"place_design", "route_design"} else "low",
+        "would_execute_tcl": True,
+        "tcl_preview": tcl_preview,
+        "recommended_docs": [
+            {"doc_id": "UG892", "title": "Vivado Design Suite User Guide: Design Flows Overview"},
+            {"doc_id": "UG901", "title": "Vivado Design Suite User Guide: Synthesis"},
+            {"doc_id": "UG904", "title": "Vivado Design Suite User Guide: Implementation"},
+            {"doc_id": "UG906", "title": "Vivado Design Suite User Guide: Design Analysis and Closure Techniques"},
+        ],
+        "recommendations": [
+            {"tool": "vivado_nonproject_audit", "why": "Review prerequisites and current Non-project stage before executing."},
+            {"tool": "vivado_analyze_reports", "why": "Parse requested reports after the step completes."},
         ],
     }
 
