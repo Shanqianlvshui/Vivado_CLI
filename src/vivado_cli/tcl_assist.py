@@ -84,6 +84,12 @@ class RiskRule:
     requires_expect_destructive: bool = False
 
 
+@dataclass(frozen=True)
+class TclCommandOccurrence:
+    command: str
+    source: str
+
+
 RISK_RULES: tuple[RiskRule, ...] = (
     RiskRule(
         risk_id="session.exit",
@@ -188,7 +194,24 @@ COMMAND_DOC_TOPICS: dict[str, str] = {
     "connect_hw_server": "hardware",
     "delete_bd_objs": "bd",
     "generate_target": "bd",
+    "current_bd_design": "bd",
+    "current_design": "build",
+    "current_fileset": "project",
+    "current_hw_device": "hardware",
+    "current_instance": "bd",
+    "current_project": "project",
+    "get_bd_cells": "bd",
+    "get_bd_intf_pins": "bd",
+    "get_bd_pins": "bd",
+    "get_bd_ports": "bd",
+    "get_cells": "constraints",
+    "get_clocks": "constraints",
     "get_files": "project",
+    "get_filesets": "project",
+    "get_nets": "constraints",
+    "get_pins": "constraints",
+    "get_ports": "constraints",
+    "get_property": "project",
     "get_hw_devices": "hardware",
     "get_hw_targets": "hardware",
     "get_runs": "build",
@@ -213,6 +236,7 @@ COMMAND_DOC_TOPICS: dict[str, str] = {
     "report_timing": "reports",
     "report_timing_summary": "reports",
     "report_utilization": "reports",
+    "reorder_files": "constraints",
     "reset_project": "project",
     "set_clock_groups": "constraints",
     "set_false_path": "constraints",
@@ -241,28 +265,34 @@ COMMAND_COVERAGE: dict[str, dict[str, object]] = {
         "notes": "Use the CLI session command to open the project and refresh session/project state.",
     },
     "add_files": {
-        "coverage_status": "raw_tcl",
-        "recommended_tools": ["vivado-cli tcl review", "vivado-cli session run-tcl", "vivado-cli project summary"],
-        "recommendation": "use_expert_tcl_with_review",
-        "notes": "No structured fileset mutation command is exposed yet. Review add_files Tcl and inspect the project summary afterward.",
+        "coverage_status": "partial",
+        "recommended_tools": ["vivado-cli fileset add-files", "vivado-cli constraint apply", "vivado-cli fileset describe"],
+        "notes": "Use structured fileset/constraint commands for common source and XDC add_files flows. Use reviewed Tcl for uncommon add_files options.",
     },
     "create_fileset": {
-        "coverage_status": "raw_tcl",
-        "recommended_tools": ["vivado-cli tcl review", "vivado-cli session run-tcl", "vivado-cli project summary"],
-        "recommendation": "use_expert_tcl_with_review",
-        "notes": "No structured create_fileset command is exposed yet. Use reviewed Tcl and inspect the fileset state through project summary.",
+        "coverage_status": "covered",
+        "recommended_tools": ["vivado-cli fileset create", "vivado-cli fileset list"],
+        "notes": "Use the structured fileset create command and inspect the fileset list afterward.",
+    },
+    "current_fileset": {
+        "coverage_status": "partial",
+        "recommended_tools": ["vivado-cli fileset list", "vivado-cli constraint apply", "vivado-cli project summary"],
+        "notes": "Use structured fileset listing for readback and constraint apply --active for common active constraint-set changes.",
     },
     "remove_files": {
-        "coverage_status": "raw_tcl",
-        "recommended_tools": ["vivado-cli tcl review", "vivado-cli session run-tcl --expect-destructive", "vivado-cli project summary"],
-        "recommendation": "use_expert_tcl_with_review",
-        "notes": "File removal is destructive. Review the Tcl, acknowledge destructive execution when required, then inspect the project summary.",
+        "coverage_status": "partial",
+        "recommended_tools": ["vivado-cli fileset remove-files", "vivado-cli constraint apply", "vivado-cli project summary"],
+        "notes": "Use structured fileset/constraint commands for common file removal. Review Tcl only for uncommon remove_files options.",
+    },
+    "reorder_files": {
+        "coverage_status": "partial",
+        "recommended_tools": ["vivado-cli constraint check-order", "vivado-cli constraint apply", "vivado-cli constraint diagnostics"],
+        "notes": "Use structured constraint order diagnostics and constraint apply for common XDC reorder flows. Use reviewed Tcl for uncommon reorder_files options.",
     },
     "set_property": {
-        "coverage_status": "raw_tcl",
-        "recommended_tools": ["vivado-cli tcl review", "vivado-cli session run-tcl", "vivado-cli project summary"],
-        "recommendation": "use_expert_tcl_with_review",
-        "notes": "No structured set_property command is exposed yet. Check UG912/UG835, review the Tcl, and inspect project state afterward.",
+        "coverage_status": "partial",
+        "recommended_tools": ["vivado-cli fileset apply", "vivado-cli fileset set-file-properties", "vivado-cli fileset set-top", "vivado-cli constraint apply"],
+        "notes": "Use structured fileset/constraint commands for TOP, INCLUDE_DIRS, DEFINE.*, file properties, and constraint-set scopes. Use reviewed Tcl for other object properties.",
     },
     "create_bd_design": {
         "coverage_status": "raw_tcl",
@@ -552,7 +582,8 @@ def review_tcl(tcl: str, *, intended_goal: str | None = None) -> dict[str, objec
         if RISK_ORDER[rule.severity] > RISK_ORDER[risk_level]:
             risk_level = rule.severity
 
-    commands = _top_level_commands(body)
+    command_occurrences = _command_occurrences(body)
+    commands = _commands_from_occurrences(command_occurrences)
     for command in commands:
         if command.startswith("report_"):
             recommended_docs.update({"UG906", "UG949"})
@@ -561,8 +592,9 @@ def review_tcl(tcl: str, *, intended_goal: str | None = None) -> dict[str, objec
         if command.startswith("program_hw") or command.startswith("open_hw") or command.startswith("connect_hw"):
             recommended_docs.add("UG908")
 
-    command_reviews = _reviewed_command_guidance(commands, risks)
-    for review in command_reviews:
+    command_reviews, support_commands = _reviewed_command_guidance(command_occurrences, risks)
+    doc_rows = command_reviews or support_commands
+    for review in doc_rows:
         recommended_docs.update(DOCS_BY_TOPIC.get(str(review["official_doc_topic"]), ("UG835",)))
 
     return {
@@ -573,9 +605,10 @@ def review_tcl(tcl: str, *, intended_goal: str | None = None) -> dict[str, objec
         "risks": risks,
         "commands": commands,
         "command_reviews": command_reviews,
-        "official_doc_queries": _official_doc_queries(command_reviews),
+        "support_commands": support_commands,
+        "official_doc_queries": _official_doc_queries(doc_rows),
         "recommended_docs": sorted(recommended_docs),
-        "recommended_tools": _review_recommended_tools(command_reviews, requires_expect_destructive),
+        "recommended_tools": _review_recommended_tools(command_reviews, support_commands, requires_expect_destructive),
         "guidance": _review_guidance(risk_level, requires_expect_destructive),
     }
 
@@ -677,13 +710,21 @@ def _strip_comments(tcl: str) -> str:
 
 
 def _top_level_commands(tcl: str) -> list[str]:
-    commands: list[str] = []
+    return _commands_from_occurrences(_command_occurrences(tcl))
+
+
+def _command_occurrences(tcl: str) -> list[TclCommandOccurrence]:
+    occurrences: list[TclCommandOccurrence] = []
     body = _mask_braced_text(tcl)
-    for match in re.finditer(r"(?m)(?:^|[;\[])\s*([A-Za-z_][A-Za-z0-9_]*)\b", body):
-        command = match.group(1)
-        if command not in commands:
-            commands.append(command)
-    return commands
+    for match in re.finditer(r"(?m)(^|[;\[])\s*([A-Za-z_][A-Za-z0-9_]*)\b", body):
+        command = match.group(2)
+        source = "nested_expression" if match.group(1) == "[" else "top_level"
+        occurrences.append(TclCommandOccurrence(command=command, source=source))
+    return occurrences
+
+
+def _commands_from_occurrences(occurrences: list[TclCommandOccurrence]) -> list[str]:
+    return _dedupe([occurrence.command for occurrence in occurrences])
 
 
 def _mask_braced_text(tcl: str) -> str:
@@ -720,23 +761,31 @@ def _normalize_command(command: str) -> str:
     return parts[0].lower() if parts else ""
 
 
-def _reviewed_command_guidance(commands: list[str], risks: list[dict[str, object]]) -> list[dict[str, object]]:
+def _reviewed_command_guidance(
+    occurrences: list[TclCommandOccurrence],
+    risks: list[dict[str, object]],
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     rows: dict[str, dict[str, object]] = {}
-    for command in commands:
-        _add_reviewed_command(rows, command, "top_level")
+    support_rows: dict[str, dict[str, object]] = {}
+    for occurrence in occurrences:
+        normalized = _normalize_command(occurrence.command)
+        if _is_support_query_command(normalized, occurrence.source):
+            _add_support_command(support_rows, normalized, occurrence.source)
+            continue
+        _add_reviewed_command(rows, normalized, occurrence.source)
     for risk in risks:
         risk_id = str(risk.get("risk_id") or "risk")
         for match in risk.get("matches", []):
             for command in _risk_match_commands(str(match), risk_id):
                 _add_reviewed_command(rows, command, f"risk:{risk_id}")
-    return list(rows.values())
+    return list(rows.values()), list(support_rows.values())
 
 
 def _add_reviewed_command(rows: dict[str, dict[str, object]], command: str, source: str) -> None:
     normalized = _normalize_command(command)
     if not normalized:
         return
-    if source == "top_level" and normalized in TCL_CONTROL_COMMANDS:
+    if not source.startswith("risk:") and normalized in TCL_CONTROL_COMMANDS:
         return
     row = rows.get(normalized)
     if row is None:
@@ -753,6 +802,33 @@ def _add_reviewed_command(rows: dict[str, dict[str, object]], command: str, sour
     assert isinstance(sources, list)
     if source not in sources:
         sources.append(source)
+
+
+def _add_support_command(rows: dict[str, dict[str, object]], command: str, source: str) -> None:
+    normalized = _normalize_command(command)
+    if not normalized:
+        return
+    row = rows.get(normalized)
+    if row is None:
+        row = {
+            "command": normalized,
+            "role": "object_query",
+            "official_doc_topic": tcl_command_doc_topic(normalized),
+            "help_tool": f"vivado-cli tcl help {normalized}",
+            "sources": [],
+            "notes": "Read-only object/query command used to select Vivado objects for another operation.",
+        }
+        rows[normalized] = row
+    sources = row["sources"]
+    assert isinstance(sources, list)
+    if source not in sources:
+        sources.append(source)
+
+
+def _is_support_query_command(command: str, source: str) -> bool:
+    if command.startswith("get_"):
+        return True
+    return command.startswith("current_") and source == "nested_expression"
 
 
 def _risk_match_commands(match: str, risk_id: str) -> list[str]:
@@ -772,21 +848,30 @@ def _risk_match_commands(match: str, risk_id: str) -> list[str]:
     return [command]
 
 
-def _official_doc_queries(command_reviews: list[dict[str, object]]) -> list[dict[str, str]]:
-    return [
-        {
-            "command": str(row["command"]),
-            "topic": str(row["official_doc_topic"]),
-            "query": str(row["command"]),
-            "tool": str(row["help_tool"]),
-        }
-        for row in command_reviews
-    ]
-
-
-def _review_recommended_tools(command_reviews: list[dict[str, object]], requires_expect_destructive: bool) -> list[str]:
-    tools: list[str] = []
+def _official_doc_queries(command_reviews: list[dict[str, object]]) -> list[dict[str, object]]:
+    queries = []
     for row in command_reviews:
+        topic = str(row["official_doc_topic"])
+        queries.append(
+            {
+                "command": str(row["command"]),
+                "topic": topic,
+                "query": str(row["command"]),
+                "tool": str(row["help_tool"]),
+                "doc_ids": list(DOCS_BY_TOPIC.get(topic, ("UG835",))),
+            }
+        )
+    return queries
+
+
+def _review_recommended_tools(
+    command_reviews: list[dict[str, object]],
+    support_commands: list[dict[str, object]],
+    requires_expect_destructive: bool,
+) -> list[str]:
+    tools: list[str] = []
+    review_rows = command_reviews or support_commands
+    for row in review_rows:
         tools.append(str(row["help_tool"]))
     tools.append("vivado-cli help topic official-docs")
     for row in command_reviews:

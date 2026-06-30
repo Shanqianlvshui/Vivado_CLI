@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import vivado_mcp.xilinx_docs as xilinx_docs
-from vivado_mcp.xilinx_docs import PdfCandidate, download_xilinx_pdf, search_xilinx_docs, sync_official_docs
+import vivado_cli.xilinx_docs as xilinx_docs
+from vivado_cli.xilinx_docs import PdfCandidate, download_xilinx_pdf, search_xilinx_docs, sync_official_docs
 
 
 def test_search_xilinx_docs_returns_khub_metadata(monkeypatch) -> None:
@@ -52,7 +52,7 @@ def test_download_xilinx_pdf_writes_verified_pdf(monkeypatch, tmp_path) -> None:
 
 
 def test_sync_official_docs_uses_catalog_filename(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("VIVADO_MCP_DOCS_ROOT", str(tmp_path))
+    monkeypatch.setenv("VIVADO_CLI_DOCS_ROOT", str(tmp_path))
     calls = []
 
     def fake_download_xilinx_pdf(source, output_name, out_dir, overwrite, timeout_seconds):

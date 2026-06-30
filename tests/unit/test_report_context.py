@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from vivado_mcp.report_context import parse_report_context, unavailable_report_reasons
+from vivado_cli.report_context import parse_report_context, unavailable_report_reasons
 
 
 def test_report_context_distinguishes_top_and_ooc_runs(tmp_path: Path) -> None:

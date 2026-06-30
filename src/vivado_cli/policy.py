@@ -18,7 +18,7 @@ class PathPolicy:
     @classmethod
     def from_environment(cls, default_workspace: Path) -> "PathPolicy":
         roots = [default_workspace]
-        env_roots = os.environ.get("VIVADO_MCP_ALLOWED_ROOTS")
+        env_roots = os.environ.get("VIVADO_CLI_ALLOWED_ROOTS")
         if env_roots:
             roots.extend(Path(item) for item in env_roots.split(os.pathsep) if item.strip())
         return cls(roots)
@@ -47,4 +47,3 @@ class PathPolicy:
     def is_allowed(self, path: Path) -> bool:
         resolved = path.resolve()
         return any(root == resolved or root in resolved.parents for root in self.roots)
-

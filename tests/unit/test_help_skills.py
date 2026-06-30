@@ -1,6 +1,6 @@
-from vivado_mcp.help_skills import get_skill, help_topic, list_skills, skills_index, suggest_next_steps
-import vivado_mcp.official_docs as official_docs
-from vivado_mcp.official_docs import (
+from vivado_cli.help_skills import get_skill, help_topic, list_skills, skills_index, suggest_next_steps
+import vivado_cli.official_docs as official_docs
+from vivado_cli.official_docs import (
     DEFAULT_LOCAL_DOCS_ROOT,
     get_official_reference,
     list_official_references,
@@ -16,6 +16,7 @@ def test_lists_builtin_skills() -> None:
         "project-build-flow",
         "block-design-flow",
         "fileset-constraint-flow",
+        "hardware-debug-flow",
         "official-docs-reference",
         "raw-tcl-expert",
     }
@@ -33,71 +34,77 @@ def test_help_topic_points_to_skill() -> None:
 
     bd_help = help_topic("bd")
     assert bd_help["related_resources"] == ["vivado://skills/block-design-flow"]
-    assert "vivado_bd_audit" in bd_help["recommended_tools"]
-    assert "vivado_bd_apply" in bd_help["recommended_tools"]
+    assert "vivado-cli bd summary" in bd_help["recommended_tools"]
+    assert "vivado-cli bd validate" in bd_help["recommended_tools"]
 
     ip_help = help_topic("ip")
-    assert "vivado_ip_catalog_search" in ip_help["recommended_tools"]
-    assert "vivado_create_ip" in ip_help["recommended_tools"]
-    assert "vivado_ip_upgrade_check" in ip_help["recommended_tools"]
-    assert "vivado_upgrade_ip" in ip_help["recommended_tools"]
+    assert "vivado-cli tcl help create_ip" in ip_help["recommended_tools"]
+    assert "vivado-cli tcl help upgrade_ip" in ip_help["recommended_tools"]
+    assert "vivado-cli session run-tcl" in ip_help["recommended_tools"]
 
     sim_help = help_topic("simulation")
-    assert "vivado_simulation_audit" in sim_help["recommended_tools"]
-    assert "vivado_prepare_simulation" in sim_help["recommended_tools"]
-    assert "vivado_launch_simulation" in sim_help["recommended_tools"]
-    assert "vivado_analyze_xsim_logs" in sim_help["recommended_tools"]
+    assert "vivado-cli tcl help launch_simulation" in sim_help["recommended_tools"]
+    assert "vivado-cli tcl review" in sim_help["recommended_tools"]
 
     nonproject_help = help_topic("non-project")
-    assert "vivado_nonproject_audit" in nonproject_help["recommended_tools"]
-    assert "vivado_nonproject_read_sources" in nonproject_help["recommended_tools"]
-    assert "vivado_nonproject_synth_design" in nonproject_help["recommended_tools"]
-    assert "vivado_nonproject_route_design" in nonproject_help["recommended_tools"]
+    assert "vivado-cli tcl help synth_design" in nonproject_help["recommended_tools"]
+    assert "vivado-cli tcl help route_design" in nonproject_help["recommended_tools"]
 
     hw_help = help_topic("hardware")
-    assert "vivado_hw_discover" in hw_help["recommended_tools"]
-    assert "vivado_search_official_docs" in hw_help["recommended_tools"]
+    assert "vivado-cli hw list-debug-cores" in hw_help["recommended_tools"]
+    assert "vivado-cli hw vio-read" in hw_help["recommended_tools"]
+    assert "vivado-cli hw vio-write" in hw_help["recommended_tools"]
+    assert "vivado-cli hw capture-ila" in hw_help["recommended_tools"]
+    assert "vivado-cli hw spi-read" in hw_help["recommended_tools"]
+    assert "vivado-cli tcl help open_hw_manager" in hw_help["recommended_tools"]
+    assert "vivado-cli tcl help program_hw_devices" in hw_help["recommended_tools"]
+    assert "vivado://skills/hardware-debug-flow" in hw_help["related_resources"]
 
     docs_help = help_topic("official_docs")
-    assert "vivado_list_official_references" in docs_help["recommended_tools"]
-    assert "vivado_search_official_docs" in docs_help["recommended_tools"]
+    assert "vivado-cli skills get official-docs-reference" in docs_help["recommended_tools"]
+    assert "vivado-cli tcl help <command>" in docs_help["recommended_tools"]
     assert "vivado://official-docs/index" in docs_help["related_resources"]
 
     tcl_help = help_topic("raw-tcl")
-    assert "vivado_tcl_command_help" in tcl_help["recommended_tools"]
-    assert "vivado_review_tcl" in tcl_help["recommended_tools"]
-    assert "vivado_capture_state" in tcl_help["recommended_tools"]
-    assert "vivado_state_diff" in tcl_help["recommended_tools"]
+    assert "vivado-cli tcl help <command>" in tcl_help["recommended_tools"]
+    assert "vivado-cli tcl review" in tcl_help["recommended_tools"]
+    assert "vivado-cli session run-tcl" in tcl_help["recommended_tools"]
 
     project_help = help_topic("project")
-    assert "vivado_capture_state" in project_help["recommended_tools"]
-    assert "vivado_source_audit" in project_help["recommended_tools"]
-    assert "vivado_analyze_reports" in project_help["recommended_tools"]
-    assert "vivado_state_diff" in project_help["recommended_tools"]
+    assert "vivado-cli project summary" in project_help["recommended_tools"]
+    assert "vivado-cli run diagnose" in project_help["recommended_tools"]
+    assert "vivado-cli report" in project_help["recommended_tools"]
 
     fileset_help = help_topic("xdc")
     assert fileset_help["related_resources"] == ["vivado://skills/fileset-constraint-flow"]
-    assert "vivado_source_audit" in fileset_help["recommended_tools"]
-    assert "vivado_fileset_apply" in fileset_help["recommended_tools"]
-    assert "vivado_constraint_set_apply" in fileset_help["recommended_tools"]
-    assert "vivado_xdc_order_check" in fileset_help["recommended_tools"]
+    assert "vivado-cli project summary" in fileset_help["recommended_tools"]
+    assert "vivado-cli fileset list" in fileset_help["recommended_tools"]
+    assert "vivado-cli fileset apply" in fileset_help["recommended_tools"]
+    assert "vivado-cli constraint check-order" in fileset_help["recommended_tools"]
+    assert "vivado-cli constraint apply" in fileset_help["recommended_tools"]
+    assert "vivado-cli tcl review" in fileset_help["recommended_tools"]
 
     report_help = help_topic("timing")
-    assert "vivado_analyze_reports" in report_help["recommended_tools"]
+    assert "vivado-cli report" in report_help["recommended_tools"]
     assert "vivado://official-docs/index" in report_help["related_resources"]
 
     recovery_help = help_topic("recovery")
-    assert "vivado_recovery_brief" in recovery_help["recommended_tools"]
-    assert "vivado_session_timeline" in recovery_help["recommended_tools"]
-    assert "vivado_list_artifacts" in recovery_help["recommended_tools"]
+    assert "vivado-cli session list" in recovery_help["recommended_tools"]
+    assert "vivado-cli run logs" in recovery_help["recommended_tools"]
 
 
 def test_suggest_next_steps_routes_fileset_and_constraint_work() -> None:
     result = suggest_next_steps(goal="fix XDC order and set top/include dirs", has_session=True, has_project=True)
     tools = [row["tool"] for row in result["recommendations"]]
 
-    assert tools[:3] == ["vivado_source_audit", "vivado_list_filesets", "vivado_describe_fileset"]
-    assert "vivado_constraint_set_apply" in tools
+    assert tools[:4] == [
+        "vivado-cli project summary",
+        "vivado-cli fileset list",
+        "vivado-cli fileset describe",
+        "vivado-cli fileset apply",
+    ]
+    assert "vivado-cli constraint check-order" in tools
+    assert "vivado-cli constraint apply" in tools
     assert result["related_resources"] == ["vivado://skills/fileset-constraint-flow"]
 
 
@@ -105,8 +112,8 @@ def test_suggest_next_steps_routes_report_diagnostics() -> None:
     result = suggest_next_steps(goal="timing failed with negative WNS and DRC errors", has_session=True, has_project=True)
     tools = [row["tool"] for row in result["recommendations"]]
 
-    assert tools[0] == "vivado_analyze_reports"
-    assert "vivado_search_official_docs" in tools
+    assert tools[0] == "vivado-cli report"
+    assert "vivado-cli tcl help report_timing_summary" in tools
     assert "vivado://official-docs/index" in result["related_resources"]
 
 
@@ -114,49 +121,66 @@ def test_suggest_next_steps_routes_ip_work() -> None:
     result = suggest_next_steps(goal="create_ip axi_gpio and generate IP output products", has_session=True, has_project=True)
     tools = [row["tool"] for row in result["recommendations"]]
 
-    assert tools[0] == "vivado_ip_catalog_search"
-    assert "vivado_create_ip" in tools
-    assert "vivado_ip_upgrade_check" in tools
-    assert "vivado_generate_ip_outputs" in tools
+    assert tools[0] == "vivado-cli tcl help create_ip"
+    assert "vivado-cli tcl help upgrade_ip" in tools
+    assert "vivado-cli tcl review" in tools
+    assert "vivado-cli session run-tcl" in tools
 
 
 def test_suggest_next_steps_routes_simulation_work() -> None:
     result = suggest_next_steps(goal="launch_simulation fails in xelab for testbench sim_1", has_session=True, has_project=True)
     tools = [row["tool"] for row in result["recommendations"]]
 
-    assert tools[:4] == ["vivado_simulation_audit", "vivado_prepare_simulation", "vivado_launch_simulation", "vivado_analyze_xsim_logs"]
-    assert "vivado_search_official_docs" in tools
+    assert tools[:4] == ["vivado-cli tcl help launch_simulation", "vivado-cli project summary", "vivado-cli tcl review", "vivado-cli session run-tcl"]
+    assert "vivado-cli run logs" in tools
 
 
 def test_suggest_next_steps_routes_nonproject_work() -> None:
     result = suggest_next_steps(goal="non-project read_verilog synth_design route_design", has_session=True, has_project=False)
     tools = [row["tool"] for row in result["recommendations"]]
 
-    assert tools[:3] == ["vivado_nonproject_audit", "vivado_nonproject_read_sources", "vivado_nonproject_synth_design"]
-    assert "vivado_nonproject_route_design" in tools
+    assert tools[:3] == ["vivado-cli tcl help read_verilog", "vivado-cli tcl help synth_design", "vivado-cli tcl help route_design"]
+    assert "vivado-cli session run-tcl" in tools
 
 
 def test_suggest_next_steps_routes_hardware_readonly_work() -> None:
     result = suggest_next_steps(goal="connect_hw_server and get_hw_devices", has_session=True, has_project=False)
     tools = [row["tool"] for row in result["recommendations"]]
 
-    assert tools[0] == "vivado_hw_discover"
-    assert "vivado_review_tcl" in tools
-    assert "vivado_search_official_docs" in tools
+    assert tools[0] == "vivado-cli hw list-debug-cores"
+    assert "vivado-cli hw vio-read" in tools
+    assert "vivado-cli hw capture-ila" in tools
+    assert "vivado-cli hw spi-read" in tools
+    assert "vivado-cli tcl help open_hw_manager" in tools
+    assert "vivado-cli tcl review" in tools
+    assert "vivado-cli session run-tcl" in tools
+
+
+def test_suggest_next_steps_routes_vio_write_work() -> None:
+    result = suggest_next_steps(goal="vio write toggle reset_n through commit_hw_vio", has_session=True, has_project=False)
+    tools = [row["tool"] for row in result["recommendations"]]
+
+    assert tools[0] == "vivado-cli hw list-debug-cores"
+    assert "vivado-cli hw vio-read" in tools
+    assert "vivado-cli hw vio-write" in tools
+    assert "vivado-cli tcl help commit_hw_vio" in tools
+    assert "vivado-cli session state" in tools
 
 
 def test_suggest_next_steps_routes_hardware_programming_to_review() -> None:
     result = suggest_next_steps(goal="program_hw_devices with a bitstream", has_session=True, has_project=True)
     tools = [row["tool"] for row in result["recommendations"]]
 
-    assert tools[0] == "vivado_review_tcl"
-    assert "vivado_hw_discover" in tools
+    assert tools[0] == "vivado-cli tcl help program_hw_devices"
+    assert "vivado-cli tcl review" in tools
+    assert "vivado-cli session run-tcl --expect-destructive" in tools
 
 
 def test_skills_index_contains_resource_uris() -> None:
     index = skills_index()
     assert "vivado://skills/project-build-flow" in index
     assert "vivado://skills/block-design-flow" in index
+    assert "vivado://skills/hardware-debug-flow" in index
 
 
 def test_official_references_cover_core_tcl_and_bd_docs() -> None:
@@ -181,7 +205,7 @@ def test_official_references_cover_core_tcl_and_bd_docs() -> None:
 
 
 def test_search_official_docs_returns_local_snippets(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("VIVADO_MCP_DOCS_ROOT", str(tmp_path))
+    monkeypatch.setenv("VIVADO_CLI_DOCS_ROOT", str(tmp_path))
     (tmp_path / "ug835.pdf").write_bytes(b"%PDF fake")
     monkeypatch.setattr(
         official_docs,

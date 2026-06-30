@@ -8,9 +8,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-DOCS_ROOT_ENV = "VIVADO_MCP_DOCS_ROOT"
-PDFTOTEXT_ENV = "VIVADO_MCP_PDFTOTEXT"
-DEFAULT_LOCAL_DOCS_ROOT = r"C:\Database\FPGA\Vivado_docs"
+DOCS_ROOT_ENV = "VIVADO_CLI_DOCS_ROOT"
+PDFTOTEXT_ENV = "VIVADO_CLI_PDFTOTEXT"
+DEFAULT_LOCAL_DOCS_ROOT = r"C:\Database\domains\fpga\xilinx\vivado\docs\raw"
 
 
 @dataclass(frozen=True)
@@ -59,7 +59,7 @@ OFFICIAL_REFERENCES: tuple[OfficialReference, ...] = (
         topics=("tcl", "commands", "api", "project", "bd", "ip", "constraints", "synthesis", "implementation", "reports", "simulation", "hardware"),
         use_when=(
             "Checking exact syntax for a Vivado Tcl command.",
-            "Designing or reviewing an MCP workflow tool that wraps Tcl.",
+            "Designing or reviewing a CLI workflow command that wraps Tcl.",
             "Falling back to expert raw Tcl mode.",
         ),
         local_filenames=("ug835.pdf",),
@@ -104,7 +104,7 @@ OFFICIAL_REFERENCES: tuple[OfficialReference, ...] = (
         topics=("tutorial", "flows", "project", "non-project", "batch", "tcl", "gui"),
         use_when=(
             "Looking for a concrete project or non-project flow example.",
-            "Creating beginner-facing MCP help or smoke-test walkthroughs.",
+            "Creating beginner-facing CLI help or smoke-test walkthroughs.",
             "Checking how official tutorials sequence Vivado operations.",
         ),
         local_filenames=("ug888.pdf",),
@@ -119,7 +119,7 @@ OFFICIAL_REFERENCES: tuple[OfficialReference, ...] = (
         topics=("gui", "ide", "tcl-console", "project", "sources", "runs", "reports"),
         use_when=(
             "Explaining how GUI-visible actions relate to Tcl-driven automation.",
-            "Designing MCP help for users watching or interacting with the Vivado IDE.",
+            "Designing CLI help for users watching or interacting with the Vivado IDE.",
             "Checking IDE concepts before mapping them to Tcl commands.",
         ),
         local_filenames=("ug893.pdf",),
@@ -225,7 +225,7 @@ OFFICIAL_REFERENCES: tuple[OfficialReference, ...] = (
         use_when=(
             "Packaging RTL or a block design as reusable IP.",
             "Editing bus interfaces or customization parameters.",
-            "Adding IP packaging support to MCP workflows.",
+            "Adding IP packaging support to CLI workflows.",
         ),
         local_filenames=("ug1118.pdf",),
     ),
@@ -255,7 +255,7 @@ OFFICIAL_REFERENCES: tuple[OfficialReference, ...] = (
         use_when=(
             "Running or configuring synthesis.",
             "Reviewing synthesis attributes and linter output.",
-            "Building synthesis-stage MCP checks.",
+            "Building synthesis-stage CLI checks.",
         ),
         local_filenames=("ug901.pdf",),
     ),
@@ -313,7 +313,7 @@ OFFICIAL_REFERENCES: tuple[OfficialReference, ...] = (
         scope="Hardware Manager, hw_server connections, device programming, debug probes, ILA/VIO/IBERT, and programming/debug Tcl flows.",
         topics=("hardware", "debug", "programming", "hw-server", "hardware-manager", "ila", "vio", "ibert", "tcl"),
         use_when=(
-            "Designing future hardware-manager MCP support.",
+            "Designing future hardware-manager CLI support.",
             "Programming devices or connecting hardware targets through Tcl.",
             "Debugging probes, ILAs, VIOs, and hardware sessions.",
         ),
@@ -359,7 +359,7 @@ OFFICIAL_REFERENCES: tuple[OfficialReference, ...] = (
         topics=("methodology", "ultrafast", "constraints", "timing", "implementation", "closure", "reports", "project"),
         use_when=(
             "Turning Vivado reports into design-closure guidance.",
-            "Adding methodology-aware MCP recommendations.",
+            "Adding methodology-aware CLI recommendations.",
             "Reviewing constraint, synthesis, and implementation strategy choices.",
         ),
         local_filenames=("ug949.pdf",),
@@ -570,7 +570,7 @@ def get_official_reference(doc_id: str) -> dict[str, object]:
     reference = _find_reference(doc_id)
     result = reference.to_dict()
     result["authority_note"] = (
-        "This MCP package embeds AMD official documentation metadata and routing guidance, "
+        "This CLI package embeds AMD official documentation metadata and routing guidance, "
         "not the copyrighted document body. Use the AMD URL or a user-provided local PDF for full text."
     )
     return result
@@ -678,7 +678,7 @@ def official_docs_index() -> str:
     lines = [
         "# Vivado Official References",
         "",
-        "This MCP package includes AMD official documentation metadata and AI routing guidance for Vivado automation. It does not embed full AMD document text or per-IP product guide bodies.",
+        "This CLI package includes AMD official documentation metadata and routing guidance for Vivado automation. It does not embed full AMD document text or per-IP product guide bodies.",
         "",
         f"- Local docs root: `{local_docs_root()}`",
         f"- Override with environment variable: `{DOCS_ROOT_ENV}`",
@@ -836,7 +836,7 @@ def _pdf_text_cache_path(path: Path) -> Path | None:
     except OSError:
         return None
     safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", path.name)
-    return Path(local_docs_root()) / ".vivado_mcp_text_cache" / f"{safe_name}.{stat.st_size}.{stat.st_mtime_ns}.txt"
+    return Path(local_docs_root()) / ".vivado_cli_text_cache" / f"{safe_name}.{stat.st_size}.{stat.st_mtime_ns}.txt"
 
 
 def _match_document_text(text: str, *, terms: list[str], context_chars: int) -> dict[str, object] | None:

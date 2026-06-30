@@ -10,7 +10,7 @@ from pathlib import Path
 from .types import VivadoInstallation
 
 
-VERSION_RE = re.compile(r"(?:VIVADO_MCP_VERSION=|Vivado v|version=)([0-9]{4}\.[0-9]+)")
+VERSION_RE = re.compile(r"(?:VIVADO_CLI_VERSION=|Vivado v|version=)([0-9]{4}\.[0-9]+)")
 
 
 def locate_vivado(vivado_path: str | None = None) -> Path:
@@ -37,12 +37,12 @@ def check_vivado(vivado_path: str | None = None, timeout_seconds: int = 60) -> V
 
 
 def probe_vivado_version(executable: Path, timeout_seconds: int = 60) -> str | None:
-    with tempfile.TemporaryDirectory(prefix="vivado_mcp_probe_") as tmp:
+    with tempfile.TemporaryDirectory(prefix="vivado_cli_probe_") as tmp:
         script = Path(tmp) / "version_probe.tcl"
         script.write_text(
             "\n".join(
                 [
-                    'puts "VIVADO_MCP_VERSION=[version -short]"',
+                    'puts "VIVADO_CLI_VERSION=[version -short]"',
                     "exit",
                 ]
             ),

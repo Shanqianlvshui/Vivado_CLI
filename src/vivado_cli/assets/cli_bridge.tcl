@@ -1,5 +1,5 @@
 set script_dir [file dirname [file normalize [info script]]]
-set session_dir [file normalize [expr {[llength $argv] >= 1 ? [lindex $argv 0] : [file join $script_dir ".." ".vivado_mcp_session"]}]]
+set session_dir [file normalize [expr {[llength $argv] >= 1 ? [lindex $argv 0] : [file join $script_dir ".." ".vivado_cli_session"]}]]
 set open_gui [expr {[lsearch -exact $argv "--gui"] >= 0}]
 
 set inbox_dir [file join $session_dir "inbox"]
@@ -7,34 +7,34 @@ set running_dir [file join $session_dir "running"]
 set done_dir [file join $session_dir "done"]
 file mkdir $session_dir $inbox_dir $running_dir $done_dir
 
-proc mcp_write_text {path text} {
+proc cli_write_text {path text} {
     set f [open $path w]
     puts -nonewline $f $text
     close $f
 }
 
-proc mcp_now {} {
+proc cli_now {} {
     return [clock format [clock seconds] -format {%Y-%m-%dT%H:%M:%S%z}]
 }
 
-proc mcp_status {state detail} {
+proc cli_status {state detail} {
     global session_dir
-    mcp_write_text [file join $session_dir "status.txt"] "state=$state\ntime=[mcp_now]\ndetail=$detail\n"
+    cli_write_text [file join $session_dir "status.txt"] "state=$state\ntime=[cli_now]\ndetail=$detail\n"
 }
 
-proc mcp_gui_status {state detail {code ""} {result ""}} {
+proc cli_gui_status {state detail {code ""} {result ""}} {
     global session_dir
-    set text "state=$state\ntime=[mcp_now]\ndetail=$detail\n"
+    set text "state=$state\ntime=[cli_now]\ndetail=$detail\n"
     if {$code ne ""} {
         append text "code=$code\n"
     }
     if {$result ne ""} {
         append text "result=$result\n"
     }
-    mcp_write_text [file join $session_dir "gui_status.txt"] $text
+    cli_write_text [file join $session_dir "gui_status.txt"] $text
 }
 
-proc mcp_run_command_file {command_file} {
+proc cli_run_command_file {command_file} {
     global running_dir done_dir
 
     set name [file tail $command_file]
@@ -43,50 +43,52 @@ proc mcp_run_command_file {command_file} {
     set result_file [file join $done_dir "${stem}.result.txt"]
 
     file rename -force $command_file $running_file
-    mcp_status "busy" $name
+    cli_status "busy" $name
 
-    set started [mcp_now]
+    set started [cli_now]
     set code [catch {uplevel #0 [list source $running_file]} result options]
-    set finished [mcp_now]
+    set finished [cli_now]
 
     set output "command=$name\nstarted=$started\nfinished=$finished\ncode=$code\n"
     append output "result=$result\n"
     if {$code != 0} {
         append output "errorinfo=[dict get $options -errorinfo]\n"
     }
-    mcp_write_text $result_file $output
-    mcp_status "idle" "completed $name"
+    cli_write_text $result_file $output
+    cli_status "idle" "completed $name"
 }
 
-proc mcp_poll {} {
+proc cli_poll {} {
     global inbox_dir
     set files [lsort [glob -nocomplain -directory $inbox_dir *.tcl]]
     foreach command_file $files {
         if {[file exists $command_file]} {
-            mcp_run_command_file $command_file
+            cli_run_command_file $command_file
         }
     }
-    after 250 mcp_poll
+    after 250 cli_poll
 }
 
-mcp_status "starting" "bridge loaded"
+cli_status "starting" "bridge loaded"
 
 if {$open_gui} {
-    mcp_gui_status "requested" "start_gui scheduled"
+    cli_gui_status "requested" "start_gui scheduled"
     after 0 {
         set gui_code [catch {
             start_gui
         } gui_result]
         if {$gui_code == 0} {
-            mcp_gui_status "started" "start_gui returned" $gui_code $gui_result
+            cli_gui_status "started" "start_gui returned" $gui_code $gui_result
         } else {
-            mcp_gui_status "error" "start_gui failed" $gui_code $gui_result
+            cli_gui_status "error" "start_gui failed" $gui_code $gui_result
         }
     }
 } else {
-    mcp_gui_status "not_requested" "session started without GUI"
+    cli_gui_status "not_requested" "session started without GUI"
 }
 
-mcp_status "idle" "ready"
-mcp_poll
-vwait ::vivado_mcp_bridge_forever
+cli_status "idle" "ready"
+cli_poll
+if {!$open_gui} {
+    vwait ::vivado_cli_bridge_forever
+}

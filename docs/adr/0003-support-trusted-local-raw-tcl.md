@@ -1,18 +1,18 @@
 # ADR 0003: Support trusted-local raw Tcl
 
-Status: accepted
+Status: accepted, amended by ADR 0005
 
 Date: 2026-06-23
 
 ## Context
 
-The user wants maximum freedom for the Vivado MCP. Workflow-level tools are useful for common operations, but Vivado has a large Tcl surface area and many project-specific flows. Mirroring every Vivado Tcl command as a separate MCP tool would create a shallow, incomplete interface.
+The user wants maximum freedom for Vivado automation. Workflow-level commands are useful for common operations, but Vivado has a large Tcl surface area and many project-specific flows. Mirroring every Vivado Tcl command as a separate CLI command would create a shallow, incomplete interface.
 
 Experiments on this machine showed that a small Tcl bridge loaded inside Vivado can execute externally submitted Tcl command files in both headless Tcl mode and GUI-visible mode.
 
 ## Decision
 
-The server will support capability profiles:
+The CLI will support capability profiles:
 
 - `safe`: workflow tools only.
 - `trusted-local`: workflow tools plus raw Tcl execution in a managed Vivado session.
@@ -29,9 +29,9 @@ Both require a managed session. Every command must be written to an artifact bef
 
 Benefits:
 
-- The MCP can cover the full Vivado Tcl surface without designing hundreds of shallow tools.
+- The CLI can cover the full Vivado Tcl surface without designing hundreds of shallow commands.
 - Advanced users can run project-specific Tcl flows through the same visible GUI session.
-- The server still records command history and results.
+- The CLI still records command history and results.
 
 Costs:
 

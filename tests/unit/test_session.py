@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from vivado_mcp.session import VivadoSessionManager
+from vivado_cli.session import _parse_result
+from vivado_cli.session import VivadoSessionManager
 
 
 def test_session_raw_tcl_lifecycle(tmp_path: Path) -> None:
@@ -35,6 +36,44 @@ def test_session_raw_tcl_lifecycle(tmp_path: Path) -> None:
 
     stopped = manager.stop_session(session_ref, timeout_seconds=5)
     assert stopped["process_exit_code"] == 0
+
+
+def test_parse_result_preserves_multiline_result_with_equals(tmp_path: Path) -> None:
+    result_path = tmp_path / "command.result.txt"
+    command_path = tmp_path / "command.tcl"
+    command_path.write_text("return probe\n", encoding="utf-8")
+    result_path.write_text(
+        "\n".join(
+            [
+                "command=command.tcl",
+                "started=now",
+                "finished=now",
+                "code=0",
+                "result=current_project=demo",
+                "FILE_NAME=<ERR> err=missing",
+                "DIRECTORY=C:/workspace/demo err=C:/workspace/demo",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    parsed = _parse_result("command", result_path, command_path)
+
+    assert parsed.ok is True
+    assert parsed.result == (
+        "current_project=demo\n"
+        "FILE_NAME=<ERR> err=missing\n"
+        "DIRECTORY=C:/workspace/demo err=C:/workspace/demo"
+    )
+
+
+def test_bridge_only_blocks_forever_for_tcl_mode() -> None:
+    bridge = Path(__file__).resolve().parents[2] / "src" / "vivado_cli" / "assets" / "cli_bridge.tcl"
+    text = bridge.read_text(encoding="utf-8")
+
+    assert "if {!$open_gui}" in text
+    assert "vwait ::vivado_cli_bridge_forever" in text
 
 
 def test_session_timeline_and_recovery_brief(tmp_path: Path) -> None:
@@ -642,8 +681,8 @@ def test_open_gui_session_reports_visible_window_without_activating_by_default(
             "detail": "Matched 1 Vivado GUI window.",
         }
 
-    monkeypatch.setattr("vivado_mcp.session.wait_for_vivado_gui", fake_wait_for_gui)
-    monkeypatch.setattr("vivado_mcp.session.probe_vivado_gui", fake_probe_gui)
+    monkeypatch.setattr("vivado_cli.session.wait_for_vivado_gui", fake_wait_for_gui)
+    monkeypatch.setattr("vivado_cli.session.probe_vivado_gui", fake_probe_gui)
 
     started = manager.start_session(
         vivado_path=str(wrapper),
@@ -654,6 +693,7 @@ def test_open_gui_session_reports_visible_window_without_activating_by_default(
 
     assert started["gui"]["visible"] is True
     assert started["state"]["gui"]["visible"] is True
+    assert (Path(str(started["session_dir"])) / "launch_mode.txt").read_text(encoding="utf-8") == "gui"
 
     state = manager.session_state(session_ref)
     assert state["gui"]["windows"][0]["title"] == "Vivado 2023.1"
@@ -693,8 +733,8 @@ def test_open_project_in_gui_updates_project_hint_without_focusing_by_default(
             "detail": "Matched 1 Vivado GUI window.",
         }
 
-    monkeypatch.setattr("vivado_mcp.session.wait_for_vivado_gui", fake_wait_for_gui)
-    monkeypatch.setattr("vivado_mcp.session.probe_vivado_gui", fake_probe_gui)
+    monkeypatch.setattr("vivado_cli.session.wait_for_vivado_gui", fake_wait_for_gui)
+    monkeypatch.setattr("vivado_cli.session.probe_vivado_gui", fake_probe_gui)
 
     started = manager.start_session(vivado_path=str(wrapper), open_gui=True, gui_wait_seconds=0)
     session_ref = str(started["session_ref"])
@@ -879,8 +919,8 @@ def test_focus_gui_explicitly_activates_window(monkeypatch: pytest.MonkeyPatch, 
             "detail": "Matched 1 Vivado GUI window.",
         }
 
-    monkeypatch.setattr("vivado_mcp.session.wait_for_vivado_gui", fake_wait_for_gui)
-    monkeypatch.setattr("vivado_mcp.session.probe_vivado_gui", fake_wait_for_gui)
+    monkeypatch.setattr("vivado_cli.session.wait_for_vivado_gui", fake_wait_for_gui)
+    monkeypatch.setattr("vivado_cli.session.probe_vivado_gui", fake_wait_for_gui)
 
     started = manager.start_session(vivado_path=str(wrapper), open_gui=True, gui_wait_seconds=0)
     focused = manager.focus_gui(str(started["session_ref"]), timeout_seconds=5)
@@ -908,10 +948,10 @@ def test_stop_session_cleans_up_managed_gui_process(monkeypatch: pytest.MonkeyPa
             "detail": "Matched 1 Vivado GUI window.",
         }
 
-    monkeypatch.setattr("vivado_mcp.session.wait_for_vivado_gui", fake_wait_for_gui)
-    monkeypatch.setattr("vivado_mcp.session.probe_vivado_gui", fake_wait_for_gui)
+    monkeypatch.setattr("vivado_cli.session.wait_for_vivado_gui", fake_wait_for_gui)
+    monkeypatch.setattr("vivado_cli.session.probe_vivado_gui", fake_wait_for_gui)
     monkeypatch.setattr(
-        "vivado_mcp.session._terminate_processes",
+        "vivado_cli.session._terminate_processes",
         lambda pids, timeout_seconds=5: {"terminated_pids": sorted(pids), "errors": []},
     )
 

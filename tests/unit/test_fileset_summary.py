@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from vivado_mcp.fileset_summary import (
+from vivado_cli.fileset_summary import (
     analyze_source_audit,
     analyze_xdc_order,
     parse_constraint_diagnostics,

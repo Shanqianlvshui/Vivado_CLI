@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import re
+import os
 import sys
 import time
 from pathlib import Path
@@ -9,8 +11,10 @@ from pathlib import Path
 def main() -> int:
     args = sys.argv[1:]
     open_design = "--fake-open-design" in args
+    mode_index = args.index("-mode") + 1 if "-mode" in args else -1
+    mode = args[mode_index] if mode_index > 0 and mode_index < len(args) else ""
     if "-mode" in args and "batch" in args:
-        print("VIVADO_MCP_VERSION=2023.1")
+        print("VIVADO_CLI_VERSION=2023.1")
         return 0
 
     session_dir = _session_dir(args)
@@ -21,8 +25,15 @@ def main() -> int:
     running.mkdir(parents=True, exist_ok=True)
     done.mkdir(parents=True, exist_ok=True)
     _write_status(session_dir, "idle", "ready")
+    (session_dir / "launch_args.txt").write_text(" ".join(args), encoding="utf-8")
+    (session_dir / "launch_mode.txt").write_text(mode, encoding="utf-8")
+    if "--gui" in args:
+        (session_dir / "gui_status.txt").write_text(
+            "state=started\ntime=now\ndetail=start_gui returned\ncode=0\n",
+            encoding="utf-8",
+        )
 
-    deadline = time.time() + 60
+    deadline = time.time() + float(os.environ.get("FAKE_VIVADO_TIMEOUT_SECONDS", "300"))
     while time.time() < deadline:
         for command in sorted(inbox.glob("*.tcl")):
             target = running / command.name
@@ -33,7 +44,7 @@ def main() -> int:
             _write_status(session_dir, "busy", command.name)
             body = target.read_text(encoding="utf-8", errors="replace")
             result_path = done / f"{target.stem}.result.txt"
-            result = _result_for(body, open_design=open_design)
+            result = _result_for(body, open_design=open_design, session_dir=session_dir)
             result_path.write_text(
                 "\n".join(
                     [
@@ -48,7 +59,7 @@ def main() -> int:
                 encoding="utf-8",
             )
             _write_status(session_dir, "idle", f"completed {command.name}")
-            if "vivado_mcp_bridge_forever" in body:
+            if "vivado_cli_bridge_forever" in body:
                 return 0
         time.sleep(0.05)
     return 2
@@ -65,7 +76,8 @@ def _write_status(session_dir: Path, state: str, detail: str) -> None:
     (session_dir / "status.txt").write_text(f"state={state}\ntime=now\ndetail={detail}\n", encoding="utf-8")
 
 
-def _result_for(body: str, *, open_design: bool = False) -> str:
+def _result_for(body: str, *, open_design: bool = False, session_dir: Path | None = None) -> str:
+    state = _fake_state(session_dir)
     help_match = re.search(r"help \{([^}]+)\}", body)
     if help_match:
         return f"Usage: {help_match.group(1)} fake help"
@@ -134,6 +146,113 @@ def _result_for(body: str, *, open_design: bool = False) -> str:
         return f"simulation_launch={path}"
     if "simulation_prepared=" in body or "create_fileset -type {simulation}" in body:
         return "simulation_prepared=sim_1"
+    debug_cores_match = re.search(r"set vivado_cli_debug_cores_file \{([^}]+)\}", body)
+    if debug_cores_match:
+        path = Path(debug_cores_match.group(1))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "\n".join(
+                [
+                    "core\tila\thw_ila_0\ttop/u_ila_0\txczu19eg_0",
+                    "property\tila\thw_ila_0\tNAME\thw_ila_0",
+                    "property\tila\thw_ila_0\tCELL_NAME\ttop/u_ila_0",
+                    "probe\tila\thw_ila_0\ttop/sine[13:0]\tIN\t14\tDATA\t0000\t",
+                    "probe\tila\thw_ila_0\ttop/valid\tIN\t1\tDATA\t1\t",
+                    "core\tvio\thw_vio_0\tchip_config/vio_spi_readback\txczu19eg_0",
+                    "property\tvio\thw_vio_0\tNAME\thw_vio_0",
+                    "property\tvio\thw_vio_0\tCELL_NAME\tchip_config/vio_spi_readback",
+                    "probe\tvio\thw_vio_0\tchip_config/spi_read_status\tIN\t29\tDATA\t0D028103\t",
+                    "probe\tvio\thw_vio_0\tchip_config/spi_read_req\tOUT\t1\tDATA\t\t0",
+                    "probe\tvio\thw_vio_0\tchip_config/spi_read_target\tOUT\t2\tDATA\t\t0",
+                    "probe\tvio\thw_vio_0\tchip_config/spi_read_addr\tOUT\t15\tDATA\t\t0000",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        return f"debug_cores={path}"
+    vio_read_match = re.search(r"set vivado_cli_vio_read_file \{([^}]+)\}", body)
+    if vio_read_match:
+        path = Path(vio_read_match.group(1))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        probe_patterns = re.findall(r"lappend vivado_cli_vio_read_probe_patterns \{([^}]+)\}", body)
+        if "set vivado_cli_vio_read_all 1" in body or not probe_patterns:
+            probe_patterns = [
+                "chip_config/spi_read_status",
+                "chip_config/spi_read_req",
+                "chip_config/spi_read_target",
+                "chip_config/spi_read_addr",
+            ]
+        fake_probes = {
+            "chip_config/spi_read_status": ("IN", 29, "DATA", "0D028103", ""),
+            "chip_config/spi_read_req": ("OUT", 1, "DATA", "", "0"),
+            "chip_config/spi_read_target": ("OUT", 2, "DATA", "", "2"),
+            "chip_config/spi_read_addr": ("OUT", 15, "DATA", "", "0281"),
+        }
+        rows = ["meta\tvio\thw_vio_0"]
+        for index, name in enumerate(probe_patterns):
+            direction, width, probe_type, input_value, output_value = fake_probes.get(name, ("IN", 1, "DATA", "1", ""))
+            rows.append(f"probe\t{index}\thw_vio_0\t{name}\t{direction}\t{width}\t{probe_type}\t{input_value}\t{output_value}")
+        rows.append("")
+        path.write_text("\n".join(rows), encoding="utf-8")
+        return f"vio_read={path}"
+    vio_write_match = re.search(r"set vivado_cli_vio_write_file \{([^}]+)\}", body)
+    if vio_write_match:
+        path = Path(vio_write_match.group(1))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        write_requests = re.findall(r"lappend vivado_cli_vio_write_requests \[list \{([^}]+)\} \{([^}]+)\}\]", body)
+        fake_probes = {
+            "chip_config/spi_read_status": ("IN", 29, "0D028103"),
+            "chip_config/spi_read_req": ("OUT", 1, "0"),
+            "chip_config/spi_read_target": ("OUT", 2, "2"),
+            "chip_config/spi_read_addr": ("OUT", 15, "0281"),
+        }
+        rows = ["meta\tvio\thw_vio_0"]
+        for index, (name, requested) in enumerate(write_requests):
+            direction, width, before = fake_probes.get(name, ("OUT", 1, "0"))
+            status = "invalid_direction" if direction == "IN" else "ok"
+            after = before if status != "ok" else requested
+            rows.append(f"write\t{index}\thw_vio_0\t{name}\t{direction}\t{width}\t{requested}\t{before}\t{after}\t{status}")
+        rows.append("")
+        path.write_text("\n".join(rows), encoding="utf-8")
+        return f"vio_write={path}"
+    ila_capture_match = re.search(r"set vivado_cli_ila_capture_file \{([^}]+)\}", body)
+    if ila_capture_match:
+        path = Path(ila_capture_match.group(1))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        values = ["0000", "0064", "0000", "3f9c", "0000", "0064", "0000", "3f9c"]
+        rows = [
+            "Sample in Buffer,Sample in Window,TRIGGER,top/sine[13:0],top/valid",
+            "Radix - UNSIGNED,UNSIGNED,UNSIGNED,HEX,UNSIGNED",
+        ]
+        for index, value in enumerate(values):
+            rows.append(f"{index},{index},{1 if index == 0 else 0},{value},1")
+        path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+        return f"ila_capture={path}"
+    spi_read_match = re.search(r"set vivado_cli_spi_read_file \{([^}]+)\}", body)
+    if spi_read_match:
+        path = Path(spi_read_match.group(1))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        register_matches = re.findall(r"lappend vivado_cli_spi_regs \[list ([0-9]+) ([0-9]+)\]", body)
+        if not register_matches:
+            register_matches = [("2", str(0x0281))]
+        rows = [
+            "meta\tvio\tfake_vio",
+            "meta\tstatus_probe\tfake/status",
+        ]
+        data_by_addr = {
+            0x0281: 0x03,
+            0x0300: 0x01,
+        }
+        for index, (target_text, addr_text) in enumerate(register_matches):
+            target = int(target_text)
+            addr = int(addr_text)
+            data = data_by_addr.get(addr, addr & 0xFF)
+            status = (1 << 27) | (1 << 26) | ((target & 0x3) << 23) | ((addr & 0x7FFF) << 8) | data
+            rows.append(f"read\t{index}\t{target}\t0x{addr:04X}\t{status:08X}\t1\t0")
+        rows.append("")
+        path.write_text("\n".join(rows), encoding="utf-8")
+        return f"spi_read={path}"
     hardware_match = re.search(r"set mcp_hw_file \{([^}]+)\}", body)
     if hardware_match:
         path = Path(hardware_match.group(1))
@@ -194,7 +313,63 @@ def _result_for(body: str, *, open_design: bool = False) -> str:
         path.write_text("\n".join(rows), encoding="utf-8")
         return f"nonproject_step={path}"
     if "launch_runs" in body:
+        run_name_match = re.search(r"set vivado_cli_run_name \{([^}]+)\}", body)
+        run_name = run_name_match.group(1) if run_name_match else "synth_1"
+        if session_dir is not None and run_name == "needs_script":
+            summaries = session_dir / "summaries"
+            summaries.mkdir(parents=True, exist_ok=True)
+            (summaries / "prepared_needs_script.txt").write_text("1", encoding="utf-8")
         return "status=complete"
+    if "reset_run" in body:
+        return "run=synth_1\nstatus=Not started\nprogress=0%"
+    run_diag_match = re.search(r"set vivado_cli_run_diag_file \{([^}]+)\}", body)
+    if run_diag_match:
+        path = Path(run_diag_match.group(1))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        run_name_match = re.search(r"set vivado_cli_run_name \{([^}]+)\}", body)
+        run_name = run_name_match.group(1) if run_name_match else "synth_1"
+        run_dir = path.parent / f"fake_{run_name}"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / ".Vivado_Synthesis.queue.rst").write_text("", encoding="utf-8")
+        has_generated_script = run_name != "needs_script" or (path.parent / "prepared_needs_script.txt").exists()
+        if has_generated_script:
+            (run_dir / "runme.sh").write_text("# fake run script\n", encoding="utf-8")
+            (run_dir / "runme.bat").write_text("@echo off\necho fake local run\n", encoding="utf-8")
+        if run_name == "synth_with_log":
+            (run_dir / "runme.log").write_text("line 1\nline 2\nline 3\n", encoding="utf-8")
+        if run_name == "synth_missing_dcp":
+            (run_dir / "runme.log").write_text(
+                "ERROR: [Runs 36-527] DCP does not exist: c:/fake/bd/ip/missing_ip/missing_ip.dcp\n",
+                encoding="utf-8",
+            )
+        if run_name == "synth_with_stale_log":
+            stale_log = run_dir / "runme.log"
+            stale_log.write_text("old worker log\n", encoding="utf-8")
+            old_time = time.time() - 120
+            now = time.time()
+            time_marker = run_dir / ".Vivado_Synthesis.queue.rst"
+            time_marker.touch()
+            os.utime(stale_log, (old_time, old_time))
+            os.utime(time_marker, (now, now))
+        path.write_text(
+            "\n".join(
+                [
+                    "has_run\t1",
+                    f"run\t{run_name}",
+                    f"property\tSTATUS\t{'synth_design ERROR' if run_name == 'synth_missing_dcp' else 'Queued...'}",
+                    "property\tPROGRESS\t0%",
+                    "property\tNEEDS_REFRESH\t0",
+                    "property\tIS_CURRENT\t",
+                    f"property\tDIRECTORY\t{run_dir.as_posix()}",
+                    "property\tLAUNCH_DIRECTORY\t",
+                    "property\tFLOW\tVivado Synthesis 2023",
+                    "property\tSTRATEGY\tVivado Synthesis Defaults",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        return f"run_diagnose={path}"
     report_context_match = re.search(r"set mcp_report_context_file \{([^}]+)\}", body)
     if report_context_match:
         path = Path(report_context_match.group(1))
@@ -210,37 +385,46 @@ def _result_for(body: str, *, open_design: bool = False) -> str:
     if summary_match:
         path = Path(summary_match.group(1))
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            "\n".join(
-                [
-                    "has_project\t1",
-                    "current_project\tfake_project",
-                    "project_file\tC:/fake/fake_project.xpr",
-                    "part\txc7a35tcpg236-1",
-                    "top\ttop",
-                    "file\tC:/fake/top.v\tVerilog",
-                    "run\tsynth_1\tsynth_design Complete!\t100%",
-                    "run\timpl_1\tNot started\t0%",
-                    "ip\tfake_ip_0",
-                    "block_design\tC:/fake/design_1.bd",
-                    "",
-                ]
-            ),
-            encoding="utf-8",
+        top = str(state.get("top") or "top")
+        rows = [
+            "has_project\t1",
+            "current_project\tfake_project",
+            "project_file\tC:/fake/fake_project.xpr",
+            "part\txc7a35tcpg236-1",
+            f"top\t{top}",
+            "file\tC:/fake/top.v\tVerilog",
+        ]
+        if state.get("sources_updated"):
+            rows.append("file\tC:/fake/new_source.v\tVerilog")
+        rows.extend(
+            [
+                "run\tsynth_1\tsynth_design Complete!\t100%",
+                "run\timpl_1\tNot started\t0%",
+                "ip\tfake_ip_0",
+                "block_design\tC:/fake/design_1.bd",
+                "",
+            ]
         )
+        path.write_text("\n".join(rows), encoding="utf-8")
         return f"summary={path}"
     fileset_list_match = re.search(r"set mcp_list_filesets_file \{([^}]+)\}", body)
     if fileset_list_match:
         path = Path(fileset_list_match.group(1))
         path.parent.mkdir(parents=True, exist_ok=True)
+        source_count = 4 if state.get("sources_updated") else 3
+        top = str(state.get("top") or "top")
+        extra_fileset = []
+        if state.get("created_fileset"):
+            extra_fileset.append(f"fileset\t{state['created_fileset']}\tConstrs\t0\t1\t0\t1\t{top}\t0")
         path.write_text(
             "\n".join(
                 [
                     "has_project\t1",
                     "current_project\tfake_project",
-                    "fileset\tsources_1\tSource\t3\t1\t1\t1\ttop\t1",
+                    f"fileset\tsources_1\tSource\t{source_count}\t1\t1\t1\t{top}\t1",
                     "fileset\tsim_1\tSimulation\t1\t0\t1\t0\ttb_top\t0",
                     "fileset\tconstrs_1\tConstrs\t2\t1\t0\t1\ttop\t1",
+                    *extra_fileset,
                     "",
                 ]
             ),
@@ -251,17 +435,21 @@ def _result_for(body: str, *, open_design: bool = False) -> str:
     if fileset_desc_match:
         path = Path(fileset_desc_match.group(1))
         path.parent.mkdir(parents=True, exist_ok=True)
+        top = str(state.get("top") or "top")
+        rows = [
+            "fileset\tsources_1",
+            "property\tFILESET_TYPE\tSource",
+            f"property\tTOP\t{top}",
+            "file\tC:/fake/top.v\tVerilog\txil_defaultlib\t0\t1\t1\t1",
+            "file\tC:/fake/alu.v\tVerilog\txil_defaultlib\t1\t1\t1\t1",
+        ]
+        if state.get("sources_updated"):
+            rows.append("file\tC:/fake/new_source.v\tVerilog\txil_defaultlib\t2\t1\t1\t1")
+        if state.get("file_property_library"):
+            rows[3] = f"file\tC:/fake/top.v\tVerilog\t{state['file_property_library']}\t0\t1\t1\t1"
+        rows.append("")
         path.write_text(
-            "\n".join(
-                [
-                    "fileset\tsources_1",
-                    "property\tFILESET_TYPE\tSource",
-                    "property\tTOP\ttop",
-                    "file\tC:/fake/top.v\tVerilog\txil_defaultlib\t0\t1\t1\t1",
-                    "file\tC:/fake/alu.v\tVerilog\txil_defaultlib\t1\t1\t1\t1",
-                    "",
-                ]
-            ),
+            "\n".join(rows),
             encoding="utf-8",
         )
         return f"fileset_desc={path}"
@@ -269,14 +457,19 @@ def _result_for(body: str, *, open_design: bool = False) -> str:
     if constr_diag_match:
         path = Path(constr_diag_match.group(1))
         path.parent.mkdir(parents=True, exist_ok=True)
+        constraint_rows = [
+            "constraint_file\tconstrs_1\t0\tC:/fake/timing.xdc\tXDC",
+            "constraint_file\tconstrs_1\t1\tC:/fake/pinout.xdc\tXDC",
+        ]
+        if state.get("constraint_updated"):
+            constraint_rows.append("constraint_file\tconstrs_1\t2\tC:/fake/extra.xdc\tXDC")
         path.write_text(
             "\n".join(
                 [
                     "has_project\t1",
                     "current_project\tfake_project",
                     "fileset\tconstrs_1\tConstrs\t1\t1\t0\t1\ttop",
-                    "constraint_file\tconstrs_1\t0\tC:/fake/timing.xdc\tXDC",
-                    "constraint_file\tconstrs_1\t1\tC:/fake/pinout.xdc\tXDC",
+                    *constraint_rows,
                     "marker\tcreate_clock\t1",
                     "marker\tcreate_generated_clock\t0",
                     "marker\tset_false_path\t0",
@@ -339,30 +532,50 @@ def _result_for(body: str, *, open_design: bool = False) -> str:
         return "ip_created=C:/fake/axi_gpio_0.xci"
     if "upgrade_ip" in body:
         return "ip_upgraded=C:/fake/axi_gpio_0.xci"
-    if "fileset_applied" in body or "set_property INCLUDE_DIRS" in body:
-        return "fileset_applied"
     if "constraint_set_applied" in body or "current_fileset -constrset" in body or "reorder_files -fileset" in body:
+        state["constraint_updated"] = True
+        _write_fake_state(session_dir, state)
         return "constraint_set_applied"
-    create_fileset_match = re.search(r"create_fileset -type \{[^}]+\} \{([^}]+)\}", body)
-    if create_fileset_match:
-        return f"fileset={create_fileset_match.group(1)}"
     # Order matters: add_files (which also sets top) must be matched before
     # the top-only branch, otherwise add_sources returns "top=...".
     if "add_files" in body:
+        state["sources_updated"] = True
+        _write_fake_state(session_dir, state)
         return "sources_updated"
+    if "fileset_applied" in body or "set_property INCLUDE_DIRS" in body:
+        state["fileset_applied"] = True
+        top_match = re.search(r"set_property top \{([^}]+)\}", body)
+        if top_match:
+            state["top"] = top_match.group(1)
+        _write_fake_state(session_dir, state)
+        return "fileset_applied"
+    create_fileset_match = re.search(r"create_fileset -type \{[^}]+\} \{([^}]+)\}", body)
+    if create_fileset_match:
+        state["created_fileset"] = create_fileset_match.group(1)
+        _write_fake_state(session_dir, state)
+        return f"fileset={create_fileset_match.group(1)}"
     if re.search(r"set_property top \{[^}]+\}", body):
         top_match = re.search(r"set_property top \{([^}]+)\}", body)
+        if top_match:
+            state["top"] = top_match.group(1)
+            _write_fake_state(session_dir, state)
         return f"top={top_match.group(1) if top_match else ''}"
     if "set_property -dict" in body and "get_files" in body:
+        library_match = re.search(r"\bLIBRARY\s+\{?([^}\s]+)\}?", body)
+        if library_match:
+            state["file_property_library"] = library_match.group(1)
+            _write_fake_state(session_dir, state)
         return "file_properties_set"
     if "remove_files" in body:
+        state["files_removed"] = True
+        _write_fake_state(session_dir, state)
         return "files_removed"
     report_match = re.search(r"-file \{([^}]+)\}", body)
     if report_match:
         path = Path(report_match.group(1))
         _write_fake_report(path, body)
         return f"report={path}"
-    if "vivado_mcp_bridge_forever" in body:
+    if "vivado_cli_bridge_forever" in body:
         return "stopping"
     return "ok"
 
@@ -404,6 +617,25 @@ def _write_fake_report(path: Path, body: str) -> None:
     else:
         text = "FAKE REPORT\nWNS 0.000\n"
     path.write_text(text, encoding="utf-8")
+
+
+def _fake_state(session_dir: Path | None) -> dict[str, object]:
+    if session_dir is None:
+        return {}
+    path = session_dir / "fake_state.json"
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _write_fake_state(session_dir: Path | None, state: dict[str, object]) -> None:
+    if session_dir is None:
+        return
+    (session_dir / "fake_state.json").write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
 
 
 if __name__ == "__main__":

@@ -15,7 +15,7 @@ KHUB_SEARCH_URL = "https://docs.amd.com/api/khub/documents/search"
 KHUB_MAPS_URL = "https://docs.amd.com/api/khub/maps"
 KHUB_DOCUMENTS_URL = "https://docs.amd.com/api/khub/documents"
 AMD_GO_PREFIX = "https://docs.amd.com/go/en-US/"
-USER_AGENT = "vivado-mcp-xilinx-doc-downloader"
+USER_AGENT = "vivado-cli-xilinx-doc-downloader"
 
 
 @dataclass(frozen=True)

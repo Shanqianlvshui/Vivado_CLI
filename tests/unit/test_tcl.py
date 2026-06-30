@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from vivado_mcp.tcl import (
+from vivado_cli.tcl import (
     bd_apply_tcl,
     bd_generate_tcl,
     bd_open_or_create_tcl,
@@ -10,6 +10,11 @@ from vivado_mcp.tcl import (
     create_project_tcl,
     fileset_apply_tcl,
     hardware_discover_tcl,
+    hw_debug_cores_tcl,
+    hw_ila_capture_tcl,
+    hw_spi_read_tcl,
+    hw_vio_read_tcl,
+    hw_vio_write_tcl,
     ip_catalog_search_tcl,
     ip_create_tcl,
     ip_describe_tcl,
@@ -141,6 +146,7 @@ def test_ip_tcl_helpers_cover_catalog_create_describe_and_outputs() -> None:
 
     listed = ip_list_tcl(Path("ips.tsv"))
     assert "foreach ip [get_ips -quiet]" in listed
+    assert "lsearch -exact [list_property $ip] $prop" in listed
 
     described = ip_describe_tcl(Path("ip.tsv"), name="axi_gpio_0")
     assert "get_ips -quiet {axi_gpio_0}" in described
@@ -152,6 +158,102 @@ def test_ip_tcl_helpers_cover_catalog_create_describe_and_outputs() -> None:
     generated = ip_generate_outputs_tcl(name="axi_gpio_0", targets=["all", "synthesis"])
     assert "generate_target {all} [get_ips {axi_gpio_0}]" in generated
     assert "generate_target {synthesis} [get_ips {axi_gpio_0}]" in generated
+
+
+def test_hw_ila_capture_tcl_is_generic_and_uses_cli_prefix() -> None:
+    script = hw_ila_capture_tcl(
+        Path("C:/captures/ila.csv"),
+        ila="hw_ila_*",
+        cell_name="u_debug_ila",
+        depth=2048,
+    )
+
+    assert "set vivado_cli_ila_capture_file {C:/captures/ila.csv}" in script
+    assert "set vivado_cli_ila_selector {hw_ila_*}" in script
+    assert "set vivado_cli_ila_cell_name {u_debug_ila}" in script
+    assert "set vivado_cli_ila_depth 2048" in script
+    assert "get_hw_ilas -quiet $vivado_cli_ila_selector" in script
+    assert "CELL_NAME" in script
+    assert "write_hw_ila_data -force -csv_file $vivado_cli_ila_capture_file" in script
+    assert "hw_ila_3" not in script
+    assert "ad_dataa" not in script
+
+
+def test_hw_debug_cores_tcl_lists_ila_vio_and_probes() -> None:
+    script = hw_debug_cores_tcl(Path("C:/captures/debug_cores.tsv"))
+
+    assert "set vivado_cli_debug_cores_file {C:/captures/debug_cores.tsv}" in script
+    assert "get_hw_ilas -quiet *" in script
+    assert "get_hw_vios -quiet *" in script
+    assert "get_hw_probes -quiet -of_objects $core" in script
+    assert "CELL_NAME" in script
+    assert "vivado_cli_put $f core $type $name $cell $device_name" in script
+    assert "debug_cores=C:/captures/debug_cores.tsv" in script
+    assert "hw_ila_3" not in script
+    assert "chip_config" not in script
+
+
+def test_hw_vio_read_tcl_reads_selected_probes_without_writes() -> None:
+    script = hw_vio_read_tcl(
+        Path("C:/captures/vio.tsv"),
+        vio="hw_vio_*",
+        probes=["spi/status", "spi/req"],
+    )
+
+    assert "set vivado_cli_vio_read_file {C:/captures/vio.tsv}" in script
+    assert "set vivado_cli_vio_selector {hw_vio_*}" in script
+    assert "lappend vivado_cli_vio_read_probe_patterns {spi/status}" in script
+    assert "lappend vivado_cli_vio_read_probe_patterns {spi/req}" in script
+    assert "refresh_hw_vio $vivado_cli_vio" in script
+    assert "get_property $prop $object" in script
+    assert "vio_read=C:/captures/vio.tsv" in script
+    assert "set_property OUTPUT_VALUE" not in script
+    assert "commit_hw_vio" not in script
+    assert "chip_config" not in script
+
+
+def test_hw_vio_write_tcl_validates_and_commits_outputs() -> None:
+    script = hw_vio_write_tcl(
+        Path("C:/captures/vio_write.tsv"),
+        vio="hw_vio_*",
+        writes=[{"probe": "spi/req", "value": "1"}],
+    )
+
+    assert "set vivado_cli_vio_write_file {C:/captures/vio_write.tsv}" in script
+    assert "set vivado_cli_vio_selector {hw_vio_*}" in script
+    assert "lappend vivado_cli_vio_write_requests [list {spi/req} {1}]" in script
+    assert "invalid_direction" in script
+    assert "set_property OUTPUT_VALUE $requested $probe" in script
+    assert "commit_hw_vio" in script
+    assert "vio_write=C:/captures/vio_write.tsv" in script
+    assert "chip_config" not in script
+
+
+def test_hw_spi_read_tcl_is_generic_and_decodes_status_layout() -> None:
+    script = hw_spi_read_tcl(
+        Path("C:/captures/spi.tsv"),
+        vio="hw_vio_*",
+        status_probe="spi/status",
+        req_probe="spi/req",
+        target_probe="spi/target",
+        addr_probe="spi/addr",
+        registers=[{"target": 2, "addr": 0x0281}],
+        poll_count=12,
+        poll_interval_ms=3,
+    )
+
+    assert "set vivado_cli_spi_read_file {C:/captures/spi.tsv}" in script
+    assert "set vivado_cli_spi_vio_selector {hw_vio_*}" in script
+    assert "set vivado_cli_spi_status_probe_name {spi/status}" in script
+    assert "set vivado_cli_spi_data_bits [list 7 0]" in script
+    assert "set vivado_cli_spi_poll_count 12" in script
+    assert "set vivado_cli_spi_poll_interval_ms 3" in script
+    assert "lappend vivado_cli_spi_regs [list 2 641]" in script
+    assert "commit_hw_vio" in script
+    assert "refresh_hw_vio" in script
+    assert "spi_read=C:/captures/spi.tsv" in script
+    assert "AD9172" not in script
+    assert "chip_config" not in script
 
 
 def test_simulation_tcl_helpers_prepare_and_launch() -> None:

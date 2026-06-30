@@ -26,7 +26,7 @@ def stop_bridge_tcl() -> str:
     return "\n".join(
         [
             "catch { stop_gui }",
-            "set ::vivado_mcp_bridge_forever 1",
+            "set ::vivado_cli_bridge_forever 1",
             'return "stopping"',
         ]
     )
@@ -466,18 +466,66 @@ def _required_list(action: dict[str, Any], key: str, *, min_count: int) -> list[
 
 
 def launch_run_tcl(run_name: str, jobs: int | None, to_step: str | None = None) -> str:
-    args = [f"launch_runs {quote_tcl(run_name)}"]
+    args = ["launch_runs"]
     if to_step:
         args.append(f"-to_step {quote_tcl(to_step)}")
     if jobs:
         args.append(f"-jobs {int(jobs)}")
+    args.append(quote_tcl(run_name))
     lines = [
+        f"set vivado_cli_run_name {quote_tcl(run_name)}",
+        "set vivado_cli_run [get_runs -quiet $vivado_cli_run_name]",
+        "if {$vivado_cli_run eq \"\"} { error \"Run not found\" }",
         " ".join(args),
-        f"wait_on_run {quote_tcl(run_name)}",
-        f"set status [get_property STATUS [get_runs {quote_tcl(run_name)}]]",
-        'return "status=$status"',
+        "set vivado_cli_run [get_runs $vivado_cli_run_name]",
+        "set status [get_property STATUS $vivado_cli_run]",
+        "set progress [get_property PROGRESS $vivado_cli_run]",
+        "return [join [list \"run=$vivado_cli_run_name\" \"status=$status\" \"progress=$progress\"] \"\\n\"]",
     ]
     return "\n".join(lines)
+
+
+def run_diagnose_tcl(output_path: Path, run_name: str) -> str:
+    out = quote_tcl(output_path)
+    out_string = str(output_path).replace("\\", "/")
+    return "\n".join(
+        [
+            f"set vivado_cli_run_diag_file {out}",
+            f"set vivado_cli_run_name {quote_tcl(run_name)}",
+            "set f [open $vivado_cli_run_diag_file w]",
+            "proc vivado_cli_put {f args} { puts $f [join $args \"\\t\"] }",
+            "set vivado_cli_run [get_runs -quiet $vivado_cli_run_name]",
+            "if {$vivado_cli_run eq \"\"} {",
+            "  vivado_cli_put $f has_run 0",
+            "  close $f",
+            f"  return \"run_diagnose={out_string}\"",
+            "}",
+            "vivado_cli_put $f has_run 1",
+            "vivado_cli_put $f run $vivado_cli_run_name",
+            "foreach prop [list STATUS PROGRESS NEEDS_REFRESH IS_CURRENT DIRECTORY LAUNCH_DIRECTORY FLOW STRATEGY] {",
+            "  set value \"\"",
+            "  catch { set value [get_property $prop $vivado_cli_run] }",
+            "  vivado_cli_put $f property $prop $value",
+            "}",
+            "close $f",
+            f"return \"run_diagnose={out_string}\"",
+        ]
+    )
+
+
+def reset_run_tcl(run_name: str) -> str:
+    return "\n".join(
+        [
+            f"set vivado_cli_run_name {quote_tcl(run_name)}",
+            "set vivado_cli_run [get_runs -quiet $vivado_cli_run_name]",
+            "if {$vivado_cli_run eq \"\"} { error \"Run not found\" }",
+            "reset_run $vivado_cli_run",
+            "set vivado_cli_run [get_runs $vivado_cli_run_name]",
+            "set status [get_property STATUS $vivado_cli_run]",
+            "set progress [get_property PROGRESS $vivado_cli_run]",
+            "return [join [list \"run=$vivado_cli_run_name\" \"status=$status\" \"progress=$progress\"] \"\\n\"]",
+        ]
+    )
 
 
 def report_tcl(report_type: str, output_path: Path) -> str:
@@ -610,6 +658,617 @@ def hardware_discover_tcl(
         ]
     )
     return "\n".join(lines)
+
+
+def hw_debug_cores_tcl(output_path: Path) -> str:
+    """Emit ILA/VIO debug cores and probe names from the active hardware device."""
+    out = quote_tcl(output_path)
+    out_string = str(output_path).replace("\\", "/")
+    return "\n".join(
+        [
+            f"set vivado_cli_debug_cores_file {out}",
+            "file mkdir [file dirname $vivado_cli_debug_cores_file]",
+            "set f [open $vivado_cli_debug_cores_file w]",
+            "proc vivado_cli_put {f args} { puts $f [join $args \"\\t\"] }",
+            "proc vivado_cli_get_prop {object prop} {",
+            "  set value \"\"",
+            "  catch { set value [get_property $prop $object] }",
+            "  return $value",
+            "}",
+            "proc vivado_cli_emit_debug_core {f type core device_name} {",
+            "  set name [vivado_cli_get_prop $core NAME]",
+            "  if {$name eq \"\"} { set name $core }",
+            "  set cell [vivado_cli_get_prop $core CELL_NAME]",
+            "  vivado_cli_put $f core $type $name $cell $device_name",
+            "  foreach prop {NAME CELL_NAME CORE_TYPE INSTANCE_NAME} {",
+            "    set value [vivado_cli_get_prop $core $prop]",
+            "    if {$value ne \"\"} { vivado_cli_put $f property $type $name $prop $value }",
+            "  }",
+            "  foreach probe [get_hw_probes -quiet -of_objects $core] {",
+            "    set probe_name [vivado_cli_get_prop $probe NAME]",
+            "    if {$probe_name eq \"\"} { set probe_name $probe }",
+            "    set direction [vivado_cli_get_prop $probe DIRECTION]",
+            "    set width [vivado_cli_get_prop $probe WIDTH]",
+            "    set probe_type [vivado_cli_get_prop $probe PROBE_TYPE]",
+            "    set input_value [vivado_cli_get_prop $probe INPUT_VALUE]",
+            "    set output_value [vivado_cli_get_prop $probe OUTPUT_VALUE]",
+            "    vivado_cli_put $f probe $type $name $probe_name $direction $width $probe_type $input_value $output_value",
+            "  }",
+            "}",
+            "catch { open_hw_manager } vivado_cli_open_hw_manager_result",
+            "if {[catch {current_hw_device} vivado_cli_device] || [llength $vivado_cli_device] == 0} {",
+            "  catch { connect_hw_server -allow_non_jtag } vivado_cli_connect_result",
+            "  catch { open_hw_target } vivado_cli_open_target_result",
+            "  set vivado_cli_devices [get_hw_devices -quiet]",
+            "  if {[llength $vivado_cli_devices] == 0} {",
+            "    vivado_cli_put $f warning no_hw_devices",
+            "    close $f",
+            f"    return \"debug_cores={out_string}\"",
+            "  }",
+            "  current_hw_device [lindex $vivado_cli_devices 0]",
+            "} else {",
+            "  current_hw_device $vivado_cli_device",
+            "}",
+            "catch { refresh_hw_device [current_hw_device] } vivado_cli_refresh_result",
+            "set vivado_cli_device_name \"\"",
+            "catch { set vivado_cli_device_name [get_property NAME [current_hw_device]] }",
+            "set vivado_cli_ilas [get_hw_ilas -quiet *]",
+            "set vivado_cli_vios [get_hw_vios -quiet *]",
+            "if {[llength $vivado_cli_ilas] == 0 && [llength $vivado_cli_vios] == 0} { vivado_cli_put $f warning no_debug_cores }",
+            "foreach vivado_cli_ila $vivado_cli_ilas {",
+            "  vivado_cli_emit_debug_core $f ila $vivado_cli_ila $vivado_cli_device_name",
+            "}",
+            "foreach vivado_cli_vio $vivado_cli_vios {",
+            "  vivado_cli_emit_debug_core $f vio $vivado_cli_vio $vivado_cli_device_name",
+            "}",
+            "close $f",
+            f"return \"debug_cores={out_string}\"",
+        ]
+    )
+
+
+def hw_vio_read_tcl(
+    output_path: Path,
+    *,
+    vio: str,
+    probes: list[str] | None = None,
+    all_probes: bool = False,
+) -> str:
+    """Read current VIO probe values without changing VIO outputs."""
+    if not vio.strip():
+        raise ValueError("hw_vio_read_tcl requires vio")
+    if not all_probes and not probes:
+        raise ValueError("hw_vio_read_tcl requires probes or all_probes")
+    out = quote_tcl(output_path)
+    out_string = str(output_path).replace("\\", "/")
+    probe_lines = [f"lappend vivado_cli_vio_read_probe_patterns {quote_tcl(probe)}" for probe in probes or []]
+    lines = [
+        f"set vivado_cli_vio_read_file {out}",
+        f"set vivado_cli_vio_selector {quote_tcl(vio)}",
+        f"set vivado_cli_vio_read_all {1 if all_probes else 0}",
+        "set vivado_cli_vio_read_probe_patterns {}",
+    ]
+    lines.extend(probe_lines)
+    lines.extend(
+        [
+            "proc vivado_cli_hw_find_one {objects what} {",
+            "  if {[llength $objects] != 1} {",
+            "    error [format {expected exactly one %s, got %d: %s} $what [llength $objects] $objects]",
+            "  }",
+            "  return [lindex $objects 0]",
+            "}",
+            "proc vivado_cli_prop {object prop} {",
+            "  set value \"\"",
+            "  catch { set value [get_property $prop $object] }",
+            "  return $value",
+            "}",
+            "proc vivado_cli_find_vio {selector} {",
+            "  set candidates [get_hw_vios -quiet $selector]",
+            "  if {[llength $candidates] == 0} {",
+            "    foreach candidate [get_hw_vios -quiet *] {",
+            "      set name [vivado_cli_prop $candidate NAME]",
+            "      set cell [vivado_cli_prop $candidate CELL_NAME]",
+            "      if {[string equal $selector $name] || [string equal $selector $cell] || [string match $selector $name] || [string match $selector $cell]} {",
+            "        lappend candidates $candidate",
+            "      }",
+            "    }",
+            "  }",
+            "  return [vivado_cli_hw_find_one $candidates {hardware VIO}]",
+            "}",
+            "proc vivado_cli_find_vio_probe {vio pattern} {",
+            "  set candidates [get_hw_probes -quiet -of_objects $vio $pattern]",
+            "  if {[llength $candidates] == 0} {",
+            "    foreach candidate [get_hw_probes -quiet -of_objects $vio] {",
+            "      set name [vivado_cli_prop $candidate NAME]",
+            "      if {[string equal $pattern $name] || [string match $pattern $name]} {",
+            "        lappend candidates $candidate",
+            "      }",
+            "    }",
+            "  }",
+            "  return [vivado_cli_hw_find_one $candidates [format {hardware VIO probe %s} $pattern]]",
+            "}",
+            "proc vivado_cli_put {f args} { puts $f [join $args \"\\t\"] }",
+            "catch { open_hw_manager }",
+            "if {[catch {current_hw_device} vivado_cli_device] || [llength $vivado_cli_device] == 0} {",
+            "  catch { connect_hw_server -allow_non_jtag }",
+            "  catch { open_hw_target }",
+            "  set vivado_cli_devices [get_hw_devices -quiet]",
+            "  if {[llength $vivado_cli_devices] == 0} { error {no hardware devices are available} }",
+            "  current_hw_device [lindex $vivado_cli_devices 0]",
+            "} else {",
+            "  current_hw_device $vivado_cli_device",
+            "}",
+            "refresh_hw_device [current_hw_device]",
+            "set vivado_cli_vio [vivado_cli_find_vio $vivado_cli_vio_selector]",
+            "refresh_hw_vio $vivado_cli_vio",
+            "set vivado_cli_vio_name [vivado_cli_prop $vivado_cli_vio NAME]",
+            "if {$vivado_cli_vio_name eq \"\"} { set vivado_cli_vio_name $vivado_cli_vio }",
+            "set vivado_cli_vio_read_probes {}",
+            "if {$vivado_cli_vio_read_all} {",
+            "  set vivado_cli_vio_read_probes [get_hw_probes -quiet -of_objects $vivado_cli_vio]",
+            "} else {",
+            "  foreach vivado_cli_probe_pattern $vivado_cli_vio_read_probe_patterns {",
+            "    lappend vivado_cli_vio_read_probes [vivado_cli_find_vio_probe $vivado_cli_vio $vivado_cli_probe_pattern]",
+            "  }",
+            "}",
+            "file mkdir [file dirname $vivado_cli_vio_read_file]",
+            "set f [open $vivado_cli_vio_read_file w]",
+            "vivado_cli_put $f meta vio $vivado_cli_vio_name",
+            "set vivado_cli_probe_index 0",
+            "foreach vivado_cli_probe $vivado_cli_vio_read_probes {",
+            "  set name [vivado_cli_prop $vivado_cli_probe NAME]",
+            "  if {$name eq \"\"} { set name $vivado_cli_probe }",
+            "  set direction [vivado_cli_prop $vivado_cli_probe DIRECTION]",
+            "  set width [vivado_cli_prop $vivado_cli_probe WIDTH]",
+            "  set probe_type [vivado_cli_prop $vivado_cli_probe PROBE_TYPE]",
+            "  set input_value [vivado_cli_prop $vivado_cli_probe INPUT_VALUE]",
+            "  set output_value [vivado_cli_prop $vivado_cli_probe OUTPUT_VALUE]",
+            "  vivado_cli_put $f probe $vivado_cli_probe_index $vivado_cli_vio_name $name $direction $width $probe_type $input_value $output_value",
+            "  incr vivado_cli_probe_index",
+            "}",
+            "close $f",
+            f"return \"vio_read={out_string}\"",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def hw_vio_write_tcl(
+    output_path: Path,
+    *,
+    vio: str,
+    writes: list[dict[str, str]],
+) -> str:
+    """Write VIO output probes after validating the selected probes."""
+    if not vio.strip():
+        raise ValueError("hw_vio_write_tcl requires vio")
+    if not writes:
+        raise ValueError("hw_vio_write_tcl requires at least one write")
+    out = quote_tcl(output_path)
+    out_string = str(output_path).replace("\\", "/")
+    write_lines = [
+        f"lappend vivado_cli_vio_write_requests [list {quote_tcl(write['probe'])} {quote_tcl(write['value'])}]"
+        for write in writes
+    ]
+    lines = [
+        f"set vivado_cli_vio_write_file {out}",
+        f"set vivado_cli_vio_selector {quote_tcl(vio)}",
+        "set vivado_cli_vio_write_requests {}",
+    ]
+    lines.extend(write_lines)
+    lines.extend(
+        [
+            "proc vivado_cli_hw_find_one {objects what} {",
+            "  if {[llength $objects] != 1} {",
+            "    error [format {expected exactly one %s, got %d: %s} $what [llength $objects] $objects]",
+            "  }",
+            "  return [lindex $objects 0]",
+            "}",
+            "proc vivado_cli_prop {object prop} {",
+            "  set value \"\"",
+            "  catch { set value [get_property $prop $object] }",
+            "  return $value",
+            "}",
+            "proc vivado_cli_find_vio {selector} {",
+            "  set candidates [get_hw_vios -quiet $selector]",
+            "  if {[llength $candidates] == 0} {",
+            "    foreach candidate [get_hw_vios -quiet *] {",
+            "      set name [vivado_cli_prop $candidate NAME]",
+            "      set cell [vivado_cli_prop $candidate CELL_NAME]",
+            "      if {[string equal $selector $name] || [string equal $selector $cell] || [string match $selector $name] || [string match $selector $cell]} {",
+            "        lappend candidates $candidate",
+            "      }",
+            "    }",
+            "  }",
+            "  return [vivado_cli_hw_find_one $candidates {hardware VIO}]",
+            "}",
+            "proc vivado_cli_find_vio_probe {vio pattern} {",
+            "  set candidates [get_hw_probes -quiet -of_objects $vio $pattern]",
+            "  if {[llength $candidates] == 0} {",
+            "    foreach candidate [get_hw_probes -quiet -of_objects $vio] {",
+            "      set name [vivado_cli_prop $candidate NAME]",
+            "      if {[string equal $pattern $name] || [string match $pattern $name]} {",
+            "        lappend candidates $candidate",
+            "      }",
+            "    }",
+            "  }",
+            "  return [vivado_cli_hw_find_one $candidates [format {hardware VIO probe %s} $pattern]]",
+            "}",
+            "proc vivado_cli_put {f args} { puts $f [join $args \"\\t\"] }",
+            "proc vivado_cli_commit_vio {vio probes} {",
+            "  if {[catch {commit_hw_vio $probes}]} { commit_hw_vio $vio }",
+            "}",
+            "catch { open_hw_manager }",
+            "if {[catch {current_hw_device} vivado_cli_device] || [llength $vivado_cli_device] == 0} {",
+            "  catch { connect_hw_server -allow_non_jtag }",
+            "  catch { open_hw_target }",
+            "  set vivado_cli_devices [get_hw_devices -quiet]",
+            "  if {[llength $vivado_cli_devices] == 0} { error {no hardware devices are available} }",
+            "  current_hw_device [lindex $vivado_cli_devices 0]",
+            "} else {",
+            "  current_hw_device $vivado_cli_device",
+            "}",
+            "refresh_hw_device [current_hw_device]",
+            "set vivado_cli_vio [vivado_cli_find_vio $vivado_cli_vio_selector]",
+            "refresh_hw_vio $vivado_cli_vio",
+            "set vivado_cli_vio_name [vivado_cli_prop $vivado_cli_vio NAME]",
+            "if {$vivado_cli_vio_name eq \"\"} { set vivado_cli_vio_name $vivado_cli_vio }",
+            "file mkdir [file dirname $vivado_cli_vio_write_file]",
+            "set f [open $vivado_cli_vio_write_file w]",
+            "vivado_cli_put $f meta vio $vivado_cli_vio_name",
+            "set vivado_cli_resolved_writes {}",
+            "set vivado_cli_write_index 0",
+            "set vivado_cli_write_has_error 0",
+            "foreach vivado_cli_request $vivado_cli_vio_write_requests {",
+            "  lassign $vivado_cli_request pattern requested",
+            "  set probe [vivado_cli_find_vio_probe $vivado_cli_vio $pattern]",
+            "  set name [vivado_cli_prop $probe NAME]",
+            "  if {$name eq \"\"} { set name $probe }",
+            "  set direction [vivado_cli_prop $probe DIRECTION]",
+            "  set width [vivado_cli_prop $probe WIDTH]",
+            "  set before [vivado_cli_prop $probe OUTPUT_VALUE]",
+            "  if {[string toupper $direction] eq \"IN\"} {",
+            "    vivado_cli_put $f write $vivado_cli_write_index $vivado_cli_vio_name $name $direction $width $requested $before $before invalid_direction",
+            "    set vivado_cli_write_has_error 1",
+            "  } else {",
+            "    lappend vivado_cli_resolved_writes [list $probe $name $direction $width $requested $before $vivado_cli_write_index]",
+            "  }",
+            "  incr vivado_cli_write_index",
+            "}",
+            "if {$vivado_cli_write_has_error} {",
+            "  close $f",
+            "  error {VIO write validation failed; at least one selected probe is input-only}",
+            "}",
+            "set vivado_cli_commit_probes {}",
+            "foreach vivado_cli_item $vivado_cli_resolved_writes {",
+            "  lassign $vivado_cli_item probe name direction width requested before index",
+            "  set_property OUTPUT_VALUE $requested $probe",
+            "  lappend vivado_cli_commit_probes $probe",
+            "}",
+            "vivado_cli_commit_vio $vivado_cli_vio $vivado_cli_commit_probes",
+            "refresh_hw_vio $vivado_cli_vio",
+            "foreach vivado_cli_item $vivado_cli_resolved_writes {",
+            "  lassign $vivado_cli_item probe name direction width requested before index",
+            "  set after [vivado_cli_prop $probe OUTPUT_VALUE]",
+            "  vivado_cli_put $f write $index $vivado_cli_vio_name $name $direction $width $requested $before $after ok",
+            "}",
+            "close $f",
+            f"return \"vio_write={out_string}\"",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def hw_ila_capture_tcl(
+    output_path: Path,
+    *,
+    ila: str | None = None,
+    cell_name: str | None = None,
+    depth: int = 1024,
+) -> str:
+    """Capture one hardware ILA to a Vivado CSV file.
+
+    ``ila`` matches either an hw_ila object name or its ``CELL_NAME``. Use
+    ``cell_name`` when the caller wants to select by implemented debug-core
+    cell rather than Vivado's generated ``hw_ila_N`` handle.
+    """
+    if not ila and not cell_name:
+        raise ValueError("hw_ila_capture_tcl requires ila or cell_name")
+    if depth < 1:
+        raise ValueError("ILA capture depth must be greater than zero")
+    out = quote_tcl(output_path)
+    out_string = str(output_path).replace("\\", "/")
+    ila_value = ila or ""
+    cell_value = cell_name or ""
+    return "\n".join(
+        [
+            f"set vivado_cli_ila_capture_file {out}",
+            f"set vivado_cli_ila_selector {quote_tcl(ila_value)}",
+            f"set vivado_cli_ila_cell_name {quote_tcl(cell_value)}",
+            f"set vivado_cli_ila_depth {int(depth)}",
+            "proc vivado_cli_find_one {objects what} {",
+            "  if {[llength $objects] != 1} {",
+            "    error [format {expected exactly one %s, got %d: %s} $what [llength $objects] $objects]",
+            "  }",
+            "  return [lindex $objects 0]",
+            "}",
+            "catch { open_hw_manager }",
+            "if {[catch {current_hw_device} vivado_cli_device] || [llength $vivado_cli_device] == 0} {",
+            "  catch { connect_hw_server -allow_non_jtag }",
+            "  catch { open_hw_target }",
+            "  set vivado_cli_devices [get_hw_devices -quiet]",
+            "  if {[llength $vivado_cli_devices] == 0} { error {no hardware devices are available} }",
+            "  current_hw_device [lindex $vivado_cli_devices 0]",
+            "} else {",
+            "  current_hw_device $vivado_cli_device",
+            "}",
+            "refresh_hw_device [current_hw_device]",
+            "set vivado_cli_candidates {}",
+            "if {$vivado_cli_ila_selector ne \"\"} {",
+            "  set vivado_cli_candidates [get_hw_ilas -quiet $vivado_cli_ila_selector]",
+            "}",
+            "if {[llength $vivado_cli_candidates] == 0} {",
+            "  foreach vivado_cli_candidate [get_hw_ilas -quiet *] {",
+            "    set vivado_cli_name \"\"",
+            "    set vivado_cli_cell \"\"",
+            "    catch { set vivado_cli_name [get_property NAME $vivado_cli_candidate] }",
+            "    catch { set vivado_cli_cell [get_property CELL_NAME $vivado_cli_candidate] }",
+            "    if {$vivado_cli_ila_selector ne \"\"} {",
+            "      if {[string equal $vivado_cli_ila_selector $vivado_cli_name] || [string equal $vivado_cli_ila_selector $vivado_cli_cell] || [string match $vivado_cli_ila_selector $vivado_cli_name] || [string match $vivado_cli_ila_selector $vivado_cli_cell]} {",
+            "        lappend vivado_cli_candidates $vivado_cli_candidate",
+            "      }",
+            "    } elseif {$vivado_cli_ila_cell_name ne \"\" && [string equal $vivado_cli_ila_cell_name $vivado_cli_cell]} {",
+            "      lappend vivado_cli_candidates $vivado_cli_candidate",
+            "    }",
+            "  }",
+            "}",
+            "if {$vivado_cli_ila_cell_name ne \"\" && [llength $vivado_cli_candidates] > 0} {",
+            "  set vivado_cli_filtered {}",
+            "  foreach vivado_cli_candidate $vivado_cli_candidates {",
+            "    set vivado_cli_cell \"\"",
+            "    catch { set vivado_cli_cell [get_property CELL_NAME $vivado_cli_candidate] }",
+            "    if {[string equal $vivado_cli_ila_cell_name $vivado_cli_cell] || [string match $vivado_cli_ila_cell_name $vivado_cli_cell]} {",
+            "      lappend vivado_cli_filtered $vivado_cli_candidate",
+            "    }",
+            "  }",
+            "  set vivado_cli_candidates $vivado_cli_filtered",
+            "}",
+            "set vivado_cli_ila [vivado_cli_find_one $vivado_cli_candidates {hardware ILA}]",
+            "current_hw_ila $vivado_cli_ila",
+            "reset_hw_ila $vivado_cli_ila",
+            "catch { set_property CONTROL.DATA_DEPTH $vivado_cli_ila_depth $vivado_cli_ila }",
+            "catch { set_property CONTROL.TRIGGER_POSITION 0 $vivado_cli_ila }",
+            "catch { set_property CONTROL.CAPTURE_MODE ALWAYS $vivado_cli_ila }",
+            "foreach vivado_cli_probe [get_hw_probes -quiet -of_objects $vivado_cli_ila] {",
+            "  catch { set_property TRIGGER_COMPARE_VALUE X $vivado_cli_probe }",
+            "  catch { set_property CAPTURE_COMPARE_VALUE X $vivado_cli_probe }",
+            "}",
+            "run_hw_ila -trigger_now $vivado_cli_ila",
+            "wait_on_hw_ila $vivado_cli_ila",
+            "set vivado_cli_data [upload_hw_ila_data $vivado_cli_ila]",
+            "file mkdir [file dirname $vivado_cli_ila_capture_file]",
+            "write_hw_ila_data -force -csv_file $vivado_cli_ila_capture_file $vivado_cli_data",
+            f"return \"ila_capture={out_string}\"",
+        ]
+    )
+
+
+def hw_spi_read_tcl(
+    output_path: Path,
+    *,
+    vio: str,
+    status_probe: str,
+    req_probe: str,
+    target_probe: str,
+    addr_probe: str,
+    registers: list[dict[str, int]],
+    status_layout: dict[str, Any] | None = None,
+    status_radix: str = "hex",
+    poll_count: int = 80,
+    poll_interval_ms: int = 25,
+) -> str:
+    """Read SPI-style registers through a generic VIO transaction interface."""
+    from .hardware_summary import normalize_spi_status_layout
+
+    if not vio.strip():
+        raise ValueError("hw_spi_read_tcl requires vio")
+    if not all(probe.strip() for probe in (status_probe, req_probe, target_probe, addr_probe)):
+        raise ValueError("hw_spi_read_tcl requires status, req, target, and addr probes")
+    if not registers:
+        raise ValueError("hw_spi_read_tcl requires at least one register")
+    if poll_count < 1:
+        raise ValueError("poll_count must be greater than zero")
+    if poll_interval_ms < 0:
+        raise ValueError("poll_interval_ms must be zero or greater")
+
+    layout = normalize_spi_status_layout(status_layout)
+    out = quote_tcl(output_path)
+    out_string = str(output_path).replace("\\", "/")
+    register_lines = [
+        f"lappend vivado_cli_spi_regs [list {int(register['target'])} {int(register['addr'])}]"
+        for register in registers
+    ]
+    lines = [
+        f"set vivado_cli_spi_read_file {out}",
+        f"set vivado_cli_spi_vio_selector {quote_tcl(vio)}",
+        f"set vivado_cli_spi_status_probe_name {quote_tcl(status_probe)}",
+        f"set vivado_cli_spi_req_probe_name {quote_tcl(req_probe)}",
+        f"set vivado_cli_spi_target_probe_name {quote_tcl(target_probe)}",
+        f"set vivado_cli_spi_addr_probe_name {quote_tcl(addr_probe)}",
+        f"set vivado_cli_spi_status_radix {quote_tcl(status_radix)}",
+        f"set vivado_cli_spi_data_bits [list {_tcl_bit_range(layout['data_bits'])}]",
+        f"set vivado_cli_spi_addr_bits [list {_tcl_bit_range(layout['addr_bits'])}]",
+        f"set vivado_cli_spi_target_bits [list {_tcl_bit_range(layout['target_bits'])}]",
+        f"set vivado_cli_spi_busy_bit {_tcl_optional_bit(layout.get('busy_bit'))}",
+        f"set vivado_cli_spi_done_bit {_tcl_optional_bit(layout.get('done_bit'))}",
+        f"set vivado_cli_spi_enable_bit {_tcl_optional_bit(layout.get('enable_bit'))}",
+        f"set vivado_cli_spi_error_bit {_tcl_optional_bit(layout.get('error_bit'))}",
+        f"set vivado_cli_spi_poll_count {int(poll_count)}",
+        f"set vivado_cli_spi_poll_interval_ms {int(poll_interval_ms)}",
+        "set vivado_cli_spi_regs {}",
+    ]
+    lines.extend(register_lines)
+    lines.extend(
+        [
+            "proc vivado_cli_hw_find_one {objects what} {",
+            "  if {[llength $objects] != 1} {",
+            "    error [format {expected exactly one %s, got %d: %s} $what [llength $objects] $objects]",
+            "  }",
+            "  return [lindex $objects 0]",
+            "}",
+            "proc vivado_cli_find_vio {selector} {",
+            "  set candidates [get_hw_vios -quiet $selector]",
+            "  if {[llength $candidates] == 0} {",
+            "    foreach candidate [get_hw_vios -quiet *] {",
+            "      set name \"\"",
+            "      set cell \"\"",
+            "      catch { set name [get_property NAME $candidate] }",
+            "      catch { set cell [get_property CELL_NAME $candidate] }",
+            "      if {[string equal $selector $name] || [string equal $selector $cell] || [string match $selector $name] || [string match $selector $cell]} {",
+            "        lappend candidates $candidate",
+            "      }",
+            "    }",
+            "  }",
+            "  return [vivado_cli_hw_find_one $candidates {hardware VIO}]",
+            "}",
+            "proc vivado_cli_find_vio_probe {vio pattern} {",
+            "  set candidates [get_hw_probes -quiet -of_objects $vio $pattern]",
+            "  if {[llength $candidates] == 0} {",
+            "    foreach candidate [get_hw_probes -quiet -of_objects $vio] {",
+            "      set name \"\"",
+            "      catch { set name [get_property NAME $candidate] }",
+            "      if {[string equal $pattern $name] || [string match $pattern $name]} {",
+            "        lappend candidates $candidate",
+            "      }",
+            "    }",
+            "  }",
+            "  return [vivado_cli_hw_find_one $candidates [format {hardware VIO probe %s} $pattern]]",
+            "}",
+            "proc vivado_cli_parse_binary {text} {",
+            "  set value 0",
+            "  foreach ch [split $text \"\"] {",
+            "    if {$ch ne \"0\" && $ch ne \"1\"} { error [format {not a binary value: %s} $text] }",
+            "    set value [expr {$value * 2 + ($ch eq \"1\" ? 1 : 0)}]",
+            "  }",
+            "  return $value",
+            "}",
+            "proc vivado_cli_parse_hw_value {raw radix} {",
+            "  set text [string map {_ \"\"} [string trim $raw]]",
+            "  if {$text eq \"\"} { return 0 }",
+            "  set lower [string tolower $text]",
+            "  if {[string match {0x*} $lower]} {",
+            "    if {[scan $text %x value] != 1} { error [format {cannot parse hex value: %s} $raw] }",
+            "    return $value",
+            "  }",
+            "  switch -- [string tolower $radix] {",
+            "    hex { if {[scan $text %x value] != 1} { error [format {cannot parse hex value: %s} $raw] }; return $value }",
+            "    dec - decimal { if {[scan $text %d value] != 1} { error [format {cannot parse decimal value: %s} $raw] }; return $value }",
+            "    bin - binary { return [vivado_cli_parse_binary $text] }",
+            "    auto {",
+            "      if {[regexp {^[01]+$} $text] && [string length $text] > 1} { return [vivado_cli_parse_binary $text] }",
+            "      if {[regexp {[a-fA-F]} $text]} { if {[scan $text %x value] != 1} { error [format {cannot parse hex value: %s} $raw] }; return $value }",
+            "      if {[scan $text %d value] != 1} { error [format {cannot parse decimal value: %s} $raw] }",
+            "      return $value",
+            "    }",
+            "    default { error [format {unsupported radix: %s} $radix] }",
+            "  }",
+            "}",
+            "proc vivado_cli_extract_bits {value bits} {",
+            "  set left [lindex $bits 0]",
+            "  set right [lindex $bits 1]",
+            "  if {$left < $right} { set low $left; set high $right } else { set low $right; set high $left }",
+            "  set width [expr {$high - $low + 1}]",
+            "  return [expr {($value >> $low) & ((1 << $width) - 1)}]",
+            "}",
+            "proc vivado_cli_extract_optional_bit {value bit default} {",
+            "  if {$bit eq \"\"} { return $default }",
+            "  return [expr {(($value >> $bit) & 1) ? 1 : 0}]",
+            "}",
+            "proc vivado_cli_decode_spi_status {raw} {",
+            "  global vivado_cli_spi_status_radix vivado_cli_spi_data_bits vivado_cli_spi_addr_bits vivado_cli_spi_target_bits",
+            "  global vivado_cli_spi_busy_bit vivado_cli_spi_done_bit vivado_cli_spi_enable_bit vivado_cli_spi_error_bit",
+            "  set value [vivado_cli_parse_hw_value $raw $vivado_cli_spi_status_radix]",
+            "  return [dict create value $value data [vivado_cli_extract_bits $value $vivado_cli_spi_data_bits] addr [vivado_cli_extract_bits $value $vivado_cli_spi_addr_bits] target [vivado_cli_extract_bits $value $vivado_cli_spi_target_bits] busy [vivado_cli_extract_optional_bit $value $vivado_cli_spi_busy_bit 0] done [vivado_cli_extract_optional_bit $value $vivado_cli_spi_done_bit 1] enable [vivado_cli_extract_optional_bit $value $vivado_cli_spi_enable_bit 1] error [vivado_cli_extract_optional_bit $value $vivado_cli_spi_error_bit 0]]",
+            "}",
+            "proc vivado_cli_commit_vio {vio probes} {",
+            "  if {[catch {commit_hw_vio $probes}]} { commit_hw_vio $vio }",
+            "}",
+            "proc vivado_cli_read_spi_register {vio target addr} {",
+            "  global vivado_cli_spi_status_probe vivado_cli_spi_req_probe vivado_cli_spi_target_probe vivado_cli_spi_addr_probe",
+            "  global vivado_cli_spi_poll_count vivado_cli_spi_poll_interval_ms",
+            "  set_property OUTPUT_VALUE 0 $vivado_cli_spi_req_probe",
+            "  vivado_cli_commit_vio $vio [list $vivado_cli_spi_req_probe]",
+            "  set_property OUTPUT_VALUE [format %X $target] $vivado_cli_spi_target_probe",
+            "  set_property OUTPUT_VALUE [format %X $addr] $vivado_cli_spi_addr_probe",
+            "  vivado_cli_commit_vio $vio [list $vivado_cli_spi_target_probe $vivado_cli_spi_addr_probe]",
+            "  set_property OUTPUT_VALUE 1 $vivado_cli_spi_req_probe",
+            "  vivado_cli_commit_vio $vio [list $vivado_cli_spi_req_probe]",
+            "  after $vivado_cli_spi_poll_interval_ms",
+            "  set_property OUTPUT_VALUE 0 $vivado_cli_spi_req_probe",
+            "  vivado_cli_commit_vio $vio [list $vivado_cli_spi_req_probe]",
+            "  set last_raw 0",
+            "  set polls 0",
+            "  set timed_out 1",
+            "  for {set i 0} {$i < $vivado_cli_spi_poll_count} {incr i} {",
+            "    incr polls",
+            "    after $vivado_cli_spi_poll_interval_ms",
+            "    refresh_hw_vio $vio",
+            "    set last_raw [get_property INPUT_VALUE $vivado_cli_spi_status_probe]",
+            "    set st [vivado_cli_decode_spi_status $last_raw]",
+            "    set done [dict get $st done]",
+            "    set busy [dict get $st busy]",
+            "    set error [dict get $st error]",
+            "    set last_target [dict get $st target]",
+            "    set last_addr [dict get $st addr]",
+            "    if {$done && !$busy && $last_target == $target && $last_addr == $addr} { set timed_out 0; break }",
+            "    if {$error} { set timed_out 0; break }",
+            "  }",
+            "  return [list $target [format {0x%04X} $addr] $last_raw $polls $timed_out]",
+            "}",
+            "proc vivado_cli_tsv_put {f args} { puts $f [join $args \"\\t\"] }",
+            "catch { open_hw_manager }",
+            "if {[catch {current_hw_device} vivado_cli_device] || [llength $vivado_cli_device] == 0} {",
+            "  catch { connect_hw_server -allow_non_jtag }",
+            "  catch { open_hw_target }",
+            "  set vivado_cli_devices [get_hw_devices -quiet]",
+            "  if {[llength $vivado_cli_devices] == 0} { error {no hardware devices are available} }",
+            "  current_hw_device [lindex $vivado_cli_devices 0]",
+            "} else {",
+            "  current_hw_device $vivado_cli_device",
+            "}",
+            "refresh_hw_device [current_hw_device]",
+            "set vivado_cli_spi_vio [vivado_cli_find_vio $vivado_cli_spi_vio_selector]",
+            "set vivado_cli_spi_status_probe [vivado_cli_find_vio_probe $vivado_cli_spi_vio $vivado_cli_spi_status_probe_name]",
+            "set vivado_cli_spi_req_probe [vivado_cli_find_vio_probe $vivado_cli_spi_vio $vivado_cli_spi_req_probe_name]",
+            "set vivado_cli_spi_target_probe [vivado_cli_find_vio_probe $vivado_cli_spi_vio $vivado_cli_spi_target_probe_name]",
+            "set vivado_cli_spi_addr_probe [vivado_cli_find_vio_probe $vivado_cli_spi_vio $vivado_cli_spi_addr_probe_name]",
+            "file mkdir [file dirname $vivado_cli_spi_read_file]",
+            "set f [open $vivado_cli_spi_read_file w]",
+            "vivado_cli_tsv_put $f meta vio $vivado_cli_spi_vio_selector",
+            "vivado_cli_tsv_put $f meta status_probe $vivado_cli_spi_status_probe_name",
+            "set vivado_cli_spi_index 0",
+            "foreach vivado_cli_reg $vivado_cli_spi_regs {",
+            "  lassign $vivado_cli_reg target addr",
+            "  set vivado_cli_row [vivado_cli_read_spi_register $vivado_cli_spi_vio $target $addr]",
+            "  vivado_cli_tsv_put $f read $vivado_cli_spi_index {*}$vivado_cli_row",
+            "  incr vivado_cli_spi_index",
+            "}",
+            "set_property OUTPUT_VALUE 0 $vivado_cli_spi_req_probe",
+            "vivado_cli_commit_vio $vivado_cli_spi_vio [list $vivado_cli_spi_req_probe]",
+            "close $f",
+            f"return \"spi_read={out_string}\"",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _tcl_bit_range(value: object) -> str:
+    left, right = value  # type: ignore[misc]
+    return f"{int(left)} {int(right)}"
+
+
+def _tcl_optional_bit(value: object) -> str:
+    return "\"\"" if value is None else str(int(value))
 
 
 # ---------------------------------------------------------------------------
@@ -972,6 +1631,7 @@ def ip_support_procs_tcl() -> str:
         [
             "proc mcp_ip_prop {ip prop} {",
             "  set value \"\"",
+            "  if {[lsearch -exact [list_property $ip] $prop] < 0} { return $value }",
             "  catch { set value [get_property $prop $ip] }",
             "  return $value",
             "}",

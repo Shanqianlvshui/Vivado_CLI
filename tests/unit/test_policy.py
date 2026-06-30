@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from vivado_mcp.policy import PathPolicy
+from vivado_cli.policy import PathPolicy
 
 
 def test_policy_allows_paths_under_root(tmp_path: Path) -> None:

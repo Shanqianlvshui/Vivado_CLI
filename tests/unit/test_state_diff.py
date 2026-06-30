@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from vivado_mcp.state_diff import diff_states, state_digest
+from vivado_cli.state_diff import diff_states, state_digest
 
 
 def test_diff_states_reports_project_files_runs_and_ips() -> None:
@@ -44,7 +44,7 @@ def test_diff_states_reports_project_files_runs_and_ips() -> None:
     assert diff["version"] == 2
     assert diff["summary"]["changed_domains"] == ["project", "filesets", "runs", "ip"]
     assert any(change["domain"] == "runs" and change["kind"] == "changed" for change in diff["changes"])
-    assert any(rec["tool"] == "vivado_analyze_reports" for rec in diff["recommendations"])
+    assert any(rec["tool"] == "vivado-cli report" for rec in diff["recommendations"])
 
 
 def test_diff_states_reports_constraints_and_bd_changes() -> None:
@@ -93,7 +93,7 @@ def test_diff_states_reports_constraints_and_bd_changes() -> None:
     assert diff["block_design"]["ports"]["added"][0]["name"] == "/gpio_tri_o"
     assert any(change["domain"] == "constraints" and change["kind"] == "added" for change in diff["changes"])
     assert any(change["domain"] == "block_design" and change["kind"] == "added" for change in diff["changes"])
-    assert any(rec["tool"] == "vivado_xdc_order_check" for rec in diff["recommendations"])
+    assert any(rec["tool"] == "vivado-cli constraint check-order" for rec in diff["recommendations"])
 
 
 def test_diff_states_reports_ip_reports_and_hardware_domains() -> None:
@@ -140,7 +140,34 @@ def test_diff_states_reports_ip_reports_and_hardware_domains() -> None:
     assert diff["ip"]["ips"]["changed"][0]["key"] == "axi_gpio_0"
     assert diff["reports"]["artifacts"]["added"][0]["artifact_id"] == "reports/timing_after.rpt"
     assert diff["hardware"]["devices"]["changed"][0]["key"] == "xc7a35t_0"
-    assert any(rec["tool"] == "vivado_describe_ip" for rec in diff["recommendations"])
+    assert any(rec["tool"] == "vivado-cli tcl help create_ip" for rec in diff["recommendations"])
+
+
+def test_diff_states_reports_fileset_description_changes() -> None:
+    before = {
+        "fileset_descriptions": [
+            {
+                "name": "sources_1",
+                "properties": {"TOP": "top"},
+                "files": [{"path": "C:/demo/top.v", "library": "xil_defaultlib"}],
+            }
+        ]
+    }
+    after = {
+        "fileset_descriptions": [
+            {
+                "name": "sources_1",
+                "properties": {"TOP": "fft_top"},
+                "files": [{"path": "C:/demo/top.v", "library": "work"}],
+            }
+        ]
+    }
+
+    diff = diff_states(before, after)
+
+    assert diff["filesets"]["descriptions"]["changed"][0]["key"] == "sources_1"
+    assert any(change["section"] == "descriptions" for change in diff["changes"])
+    assert any(rec["tool"] == "vivado-cli fileset describe" for rec in diff["recommendations"])
 
 
 def test_state_digest_is_stable_for_reordered_data() -> None:

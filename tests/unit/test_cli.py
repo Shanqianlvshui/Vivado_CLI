@@ -168,6 +168,19 @@ def test_cli_tools_list_and_describe(capsys) -> None:
     assert vio_write_tool["tool_id"] == "vivado_hw_vio_write"
     assert vio_write_tool["risk_level"] == "hardware_write"
 
+    code = cli.main(["tools", "describe", "fileset", "add-files"])
+    assert code == 0
+    fileset_tool = json.loads(capsys.readouterr().out)["tool"]
+    assert fileset_tool["tool_id"] == "vivado_fileset_add_files"
+    assert fileset_tool["risk_level"] == "project_mutation"
+    assert "--no-state-diff" in fileset_tool["details"]["safety"]
+
+    code = cli.main(["tools", "describe", "constraint", "check-order"])
+    assert code == 0
+    xdc_tool = json.loads(capsys.readouterr().out)["tool"]
+    assert xdc_tool["tool_id"] == "vivado_xdc_order_check"
+    assert xdc_tool["risk_level"] == "read_only"
+
 
 def test_cli_adopts_existing_bridge_session(tmp_path: Path, capsys) -> None:
     wrapper = _make_fake_wrapper(tmp_path)
@@ -464,6 +477,243 @@ def test_cli_project_summary_parses_fake_vivado_output(tmp_path: Path, capsys) -
     assert summary["project_summary"]["has_project"] is True
     assert summary["project_summary"]["current_project"] == "fake_project"
     assert summary["project_summary"]["runs"][0]["name"] == "synth_1"
+
+    assert cli.main(["--workspace", str(workspace), "session", "stop", "--session", session_ref, "--timeout", "5"]) == 0
+    capsys.readouterr()
+
+
+def test_cli_fileset_commands_parse_and_mutate_fake_vivado(tmp_path: Path, capsys) -> None:
+    wrapper = _make_fake_wrapper(tmp_path, open_design=True)
+    workspace = tmp_path / "workspace"
+
+    assert cli.main(["--workspace", str(workspace), "session", "start", "--vivado-path", str(wrapper), "--no-gui", "--timeout", "5"]) == 0
+    session_ref = json.loads(capsys.readouterr().out)["session_ref"]
+
+    code = cli.main(["--workspace", str(workspace), "fileset", "list", "--session", session_ref, "--timeout", "5"])
+    assert code == 0
+    listed = json.loads(capsys.readouterr().out)
+    assert listed["ok"] is True
+    assert listed["filesets"]["filesets"][0]["name"] == "sources_1"
+    assert Path(listed["filesets_path"]).exists()
+
+    code = cli.main(["--workspace", str(workspace), "fileset", "describe", "--session", session_ref, "sources_1", "--timeout", "5"])
+    assert code == 0
+    described = json.loads(capsys.readouterr().out)
+    assert described["fileset_description"]["properties"]["TOP"] == "top"
+    assert described["fileset_description"]["files"][0]["library"] == "xil_defaultlib"
+
+    code = cli.main(["--workspace", str(workspace), "fileset", "create", "--session", session_ref, "constrs_debug", "--type", "constrs", "--timeout", "5"])
+    assert code == 0
+    created = json.loads(capsys.readouterr().out)
+    assert created["fileset"] == "constrs_debug"
+    assert created["requested_type"] == "constrs"
+    assert created["state_tracking"]["enabled"] is True
+    assert Path(created["state_tracking"]["diff"]["diff_path"]).exists()
+
+    code = cli.main(
+        [
+            "--workspace",
+            str(workspace),
+            "fileset",
+            "add-files",
+            "--session",
+            session_ref,
+            "sources_1",
+            "--file",
+            str(workspace / "src" / "top.v"),
+            "--include-dir",
+            str(workspace / "include"),
+            "--define",
+            "USE_FFT",
+            "--top",
+            "top",
+            "--library",
+            "xil_defaultlib",
+            "--used-in",
+            "synthesis",
+            "--timeout",
+            "5",
+        ]
+    )
+    assert code == 0
+    added = json.loads(capsys.readouterr().out)
+    assert added["result"] == "sources_updated"
+    assert added["fileset"] == "sources_1"
+    assert added["state_diff"]["changed"] is True
+    assert added["state_diff"]["summary"]["change_count"] > 0
+    assert "project" in added["state_diff"]["summary"]["changed_domains"]
+
+    code = cli.main(
+        [
+            "--workspace",
+            str(workspace),
+            "fileset",
+            "apply",
+            "--session",
+            session_ref,
+            "sources_1",
+            "--include-dir",
+            str(workspace / "rtl_inc"),
+            "--define",
+            "USE_DSP",
+            "--property",
+            "FILESET_TYPE=DesignSrcs",
+            "--no-state-diff",
+            "--timeout",
+            "5",
+        ]
+    )
+    assert code == 0
+    applied = json.loads(capsys.readouterr().out)
+    assert applied["result"] == "fileset_applied"
+    assert applied["properties"] == {"FILESET_TYPE": "DesignSrcs"}
+    assert applied["state_tracking"]["enabled"] is False
+    assert applied["state_tracking"]["reason"] == "disabled_by_user"
+    assert "state_diff" not in applied
+
+    code = cli.main(
+        [
+            "--workspace",
+            str(workspace),
+            "fileset",
+            "set-file-properties",
+            "--session",
+            session_ref,
+            "--fileset",
+            "sources_1",
+            "--file",
+            str(workspace / "src" / "top.v"),
+            "--property",
+            "LIBRARY=work",
+            "--timeout",
+            "5",
+        ]
+    )
+    assert code == 0
+    file_props = json.loads(capsys.readouterr().out)
+    assert file_props["result"] == "file_properties_set"
+    assert file_props["properties"] == {"LIBRARY": "work"}
+    assert file_props["state_tracking"]["enabled"] is True
+
+    code = cli.main(["--workspace", str(workspace), "fileset", "set-top", "--session", session_ref, "--fileset", "sources_1", "--top", "fft_top", "--timeout", "5"])
+    assert code == 0
+    top = json.loads(capsys.readouterr().out)
+    assert top["top"] == "fft_top"
+    assert top["state_diff"]["changed"] is True
+
+    code = cli.main(
+        [
+            "--workspace",
+            str(workspace),
+            "fileset",
+            "remove-files",
+            "--session",
+            session_ref,
+            "--fileset",
+            "sources_1",
+            "--file",
+            str(workspace / "src" / "old.v"),
+            "--timeout",
+            "5",
+        ]
+    )
+    assert code == 1
+    denied = json.loads(capsys.readouterr().err)
+    assert "--expect-destructive" in denied["error"]
+
+    code = cli.main(
+        [
+            "--workspace",
+            str(workspace),
+            "fileset",
+            "remove-files",
+            "--session",
+            session_ref,
+            "--fileset",
+            "sources_1",
+            "--file",
+            str(workspace / "src" / "old.v"),
+            "--expect-destructive",
+            "--timeout",
+            "5",
+        ]
+    )
+    assert code == 0
+    removed = json.loads(capsys.readouterr().out)
+    assert removed["expect_destructive"] is True
+    assert removed["result"] == "files_removed"
+    assert removed["state_tracking"]["enabled"] is True
+
+    assert cli.main(["--workspace", str(workspace), "session", "stop", "--session", session_ref, "--timeout", "5"]) == 0
+    capsys.readouterr()
+
+
+def test_cli_constraint_commands_parse_and_apply_fake_vivado(tmp_path: Path, capsys) -> None:
+    wrapper = _make_fake_wrapper(tmp_path, open_design=True)
+    workspace = tmp_path / "workspace"
+
+    assert cli.main(["--workspace", str(workspace), "session", "start", "--vivado-path", str(wrapper), "--no-gui", "--timeout", "5"]) == 0
+    session_ref = json.loads(capsys.readouterr().out)["session_ref"]
+
+    code = cli.main(["--workspace", str(workspace), "constraint", "diagnostics", "--session", session_ref, "--timeout", "5"])
+    assert code == 0
+    diagnostics = json.loads(capsys.readouterr().out)
+    assert diagnostics["constraint_diagnostics"]["xdc_markers"]["create_clock"] == 1
+    assert diagnostics["constraint_diagnostics"]["constraint_files"][0]["path"] == "C:/fake/timing.xdc"
+    assert Path(diagnostics["constraint_diagnostics_path"]).exists()
+
+    code = cli.main(["--workspace", str(workspace), "constraint", "check-order", "--session", session_ref, "--timeout", "5"])
+    assert code == 0
+    checked = json.loads(capsys.readouterr().out)
+    assert checked["xdc_order"]["ok"] is True
+    assert checked["xdc_order"]["reorder_plan"] == {}
+
+    code = cli.main(
+        [
+            "--workspace",
+            str(workspace),
+            "constraint",
+            "apply",
+            "--session",
+            session_ref,
+            "constrs_1",
+            "--add",
+            str(workspace / "constraints" / "timing.xdc"),
+            "--used-in",
+            "synthesis",
+            "--used-in",
+            "implementation",
+            "--active",
+            "--timeout",
+            "5",
+        ]
+    )
+    assert code == 0
+    applied = json.loads(capsys.readouterr().out)
+    assert applied["result"] == "constraint_set_applied"
+    assert applied["used_in"] == ["synthesis", "implementation"]
+    assert applied["active"] is True
+    assert applied["state_diff"]["changed"] is True
+    assert "constraints" in applied["state_diff"]["summary"]["changed_domains"]
+
+    code = cli.main(
+        [
+            "--workspace",
+            str(workspace),
+            "constraint",
+            "apply",
+            "--session",
+            session_ref,
+            "constrs_1",
+            "--remove",
+            str(workspace / "constraints" / "old.xdc"),
+            "--timeout",
+            "5",
+        ]
+    )
+    assert code == 1
+    denied = json.loads(capsys.readouterr().err)
+    assert "--expect-destructive" in denied["error"]
 
     assert cli.main(["--workspace", str(workspace), "session", "stop", "--session", session_ref, "--timeout", "5"]) == 0
     capsys.readouterr()

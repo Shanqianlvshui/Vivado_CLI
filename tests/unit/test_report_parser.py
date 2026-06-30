@@ -1,4 +1,4 @@
-from vivado_mcp.report_parser import (
+from vivado_cli.report_parser import (
     append_report_generation_issues,
     analyze_report_summaries,
     parse_clock_interaction,

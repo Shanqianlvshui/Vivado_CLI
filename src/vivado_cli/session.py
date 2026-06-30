@@ -52,14 +52,14 @@ class VivadoSessionManager:
 
         executable = locate_vivado(vivado_path)
         session_ref = uuid.uuid4().hex
-        session_dir = workspace / ".vivado_mcp" / "sessions" / session_ref
+        session_dir = workspace / ".vivado_cli" / "sessions" / session_ref
         session_dir.mkdir(parents=True, exist_ok=True)
         log_path = session_dir / "process.log"
-        bridge = resources.files("vivado_mcp.assets").joinpath("mcp_bridge.tcl")
+        bridge = resources.files("vivado_cli.assets").joinpath("cli_bridge.tcl")
 
         args = [
             "-mode",
-            "tcl",
+            "gui" if open_gui else "tcl",
             "-source",
             str(bridge),
             "-tclargs",
@@ -3011,9 +3011,10 @@ def _parse_result(command_id: str, result_path: Path, command_path: Path) -> Tcl
     fields: dict[str, str] = {}
     current_key: str | None = None
     chunks: dict[str, list[str]] = {}
+    protocol_keys = {"command", "started", "finished", "code", "result", "errorinfo"}
     for line in result_path.read_text(encoding="utf-8", errors="replace").splitlines():
-        if "=" in line and not line.startswith(" "):
-            key, value = line.split("=", 1)
+        key, separator, value = line.partition("=")
+        if separator and key in protocol_keys:
             current_key = key
             fields[key] = value
             chunks[key] = [value]

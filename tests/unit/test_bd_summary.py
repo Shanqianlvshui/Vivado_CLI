@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from vivado_mcp.bd_summary import analyze_bd_audit, parse_bd_summary, parse_bd_validate_result
+from vivado_cli.bd_summary import analyze_bd_audit, parse_bd_summary, parse_bd_validate_result
 
 
 def test_parse_bd_summary(tmp_path: Path) -> None:

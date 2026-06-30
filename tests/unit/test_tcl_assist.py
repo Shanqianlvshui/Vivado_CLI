@@ -66,9 +66,52 @@ def test_review_tcl_returns_command_guidance_and_doc_queries() -> None:
     assert "vivado-cli tcl help create_ip" in result["recommended_tools"]
     assert "UG903" in result["recommended_docs"]
     assert "UG896" in result["recommended_docs"]
-    assert {"command": "launch_runs", "topic": "build", "query": "launch_runs", "tool": "vivado-cli tcl help launch_runs"} in result[
-        "official_doc_queries"
-    ]
+    launch_query = next(query for query in result["official_doc_queries"] if query["command"] == "launch_runs")
+    assert launch_query["topic"] == "build"
+    assert launch_query["query"] == "launch_runs"
+    assert launch_query["tool"] == "vivado-cli tcl help launch_runs"
+    assert launch_query["doc_ids"] == ["UG901", "UG904", "UG906", "UG949", "UG1292", "UG835"]
+
+
+def test_review_tcl_separates_nested_object_queries_from_action_commands() -> None:
+    result = review_tcl(
+        """
+        create_clock -period 3.2 [get_ports sys_clk]
+        set_property PACKAGE_PIN A1 [get_ports sys_clk]
+        """
+    )
+
+    command_reviews = {row["command"]: row for row in result["command_reviews"]}
+    support_commands = {row["command"]: row for row in result["support_commands"]}
+
+    assert set(command_reviews) == {"create_clock", "set_property"}
+    assert support_commands["get_ports"]["role"] == "object_query"
+    assert support_commands["get_ports"]["sources"] == ["nested_expression"]
+    assert "vivado-cli tcl help get_ports" not in result["recommended_tools"]
+    assert all(query["command"] != "get_ports" for query in result["official_doc_queries"])
+
+
+def test_review_tcl_query_only_script_keeps_query_help_available() -> None:
+    result = review_tcl("get_ports *")
+
+    assert result["command_reviews"] == []
+    assert result["support_commands"][0]["command"] == "get_ports"
+    assert result["official_doc_queries"][0]["command"] == "get_ports"
+    assert result["official_doc_queries"][0]["topic"] == "constraints"
+    assert result["official_doc_queries"][0]["doc_ids"] == ["UG903", "UG899", "UG912", "UG835"]
+    assert "vivado-cli tcl help get_ports" in result["recommended_tools"]
+
+
+def test_review_tcl_treats_top_level_current_fileset_as_action() -> None:
+    result = review_tcl("current_fileset -constrset [get_filesets constrs_1]")
+
+    command_reviews = {row["command"]: row for row in result["command_reviews"]}
+    support_commands = {row["command"]: row for row in result["support_commands"]}
+
+    assert command_reviews["current_fileset"]["official_doc_topic"] == "project"
+    assert command_reviews["current_fileset"]["coverage"]["coverage_status"] == "partial"
+    assert "vivado-cli constraint apply" in command_reviews["current_fileset"]["coverage"]["recommended_tools"]
+    assert support_commands["get_filesets"]["official_doc_topic"] == "project"
 
 
 def test_review_tcl_flags_nested_and_semicolon_commands() -> None:
@@ -126,6 +169,27 @@ def test_tcl_command_coverage_routes_bd_cell_to_reviewed_expert_tcl() -> None:
 
 
 def test_command_coverage_for_priority_cross_flow_commands() -> None:
+    add_files = tcl_command_coverage("add_files")
+    assert add_files["coverage_status"] == "partial"
+    assert add_files["recommended_tools"] == ["vivado-cli fileset add-files", "vivado-cli constraint apply", "vivado-cli fileset describe"]
+
+    create_fileset = tcl_command_coverage("create_fileset")
+    assert create_fileset["coverage_status"] == "covered"
+    assert create_fileset["recommended_tools"] == ["vivado-cli fileset create", "vivado-cli fileset list"]
+
+    set_property = tcl_command_coverage("set_property")
+    assert set_property["coverage_status"] == "partial"
+    assert "vivado-cli fileset apply" in set_property["recommended_tools"]
+
+    reorder_files = tcl_command_coverage("reorder_files")
+    assert reorder_files["coverage_status"] == "partial"
+    assert reorder_files["recommended_tools"] == [
+        "vivado-cli constraint check-order",
+        "vivado-cli constraint apply",
+        "vivado-cli constraint diagnostics",
+    ]
+    assert tcl_command_doc_topic("reorder_files") == "constraints"
+
     create_clock = tcl_command_coverage("create_clock")
     assert create_clock["coverage_status"] == "raw_tcl"
     assert create_clock["recommended_tools"] == ["vivado-cli tcl review", "vivado-cli session run-tcl", "vivado-cli project summary"]

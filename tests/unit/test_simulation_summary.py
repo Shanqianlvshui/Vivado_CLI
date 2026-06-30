@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from vivado_mcp.simulation_summary import analyze_simulation_audit, analyze_xsim_logs, parse_simulation_launch
+from vivado_cli.simulation_summary import analyze_simulation_audit, analyze_xsim_logs, parse_simulation_launch
 
 
 def test_parse_simulation_launch_returns_logs_and_mode(tmp_path: Path) -> None:

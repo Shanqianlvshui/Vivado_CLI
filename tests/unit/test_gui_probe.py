@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from vivado_mcp.gui_probe import _matches_vivado_window
+from vivado_cli.gui_probe import _matches_vivado_window
 
 
 def test_vivado_gui_match_ignores_transient_script_progress_window() -> None:
@@ -10,7 +10,7 @@ def test_vivado_gui_match_ignores_transient_script_progress_window() -> None:
         {
             "handle": 1,
             "pid": 59396,
-            "title": r" Sourcing Tcl script 'C:\tools\vivado_mcp\assets\mcp_bridge.tcl' ",
+            "title": r" Sourcing Tcl script 'C:\tools\vivado_cli\assets\cli_bridge.tcl' ",
         },
         watched_pids=watched_pids,
         title_hints=[],

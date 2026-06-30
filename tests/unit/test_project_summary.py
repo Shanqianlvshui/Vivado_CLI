@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from vivado_mcp.project_summary import parse_project_summary
+from vivado_cli.project_summary import parse_project_summary
 
 
 def test_parse_project_summary() -> None:

@@ -1,18 +1,18 @@
 # ADR 0004: Provide built-in help and skills
 
-Status: accepted
+Status: accepted, amended by ADR 0005
 
 Date: 2026-06-23
 
 ## Context
 
-Vivado is large, and the MCP server exposes both safe workflow tools and high-freedom raw Tcl tools. AI clients need guidance about which tool to call, in what order, and what to inspect after failures. Relying only on external documentation would make the MCP harder to use and more error-prone.
+Vivado is large, and the CLI exposes both safe workflow commands and high-freedom raw Tcl commands. AI clients and human scripts need guidance about which command to call, in what order, and what to inspect after failures. Relying only on external documentation would make the CLI harder to use and more error-prone.
 
-MCP supports tools for model-controlled actions and resources for application-controlled context. Help content fits naturally as resources, while discovery and recommendation fit naturally as tools.
+ADR 0005 removed MCP resources, so help content is now exposed through CLI JSON/text commands instead of MCP resources.
 
 ## Decision
 
-The server will include a built-in help/skills system.
+The CLI will include a built-in help/skills system.
 
 Initial tools:
 
@@ -36,13 +36,13 @@ The help system should be available in every capability profile, including `safe
 Benefits:
 
 - AI clients can learn the intended workflows before operating Vivado.
-- The MCP can steer models toward safer workflow tools while still documenting expert raw Tcl mode.
+- The CLI can steer callers toward safer workflow commands while still documenting expert raw Tcl mode.
 - Tutorials can evolve without changing the core tool interface.
 
 Costs:
 
 - The help content must be maintained alongside tool behavior.
-- The server needs tests that resource IDs and skill IDs stay valid.
+- The CLI needs tests that help topics and skill IDs stay valid.
 
 Follow-up:
 

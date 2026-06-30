@@ -1,8 +1,8 @@
 """Parsers for fileset and constraint diagnostic TSV outputs.
 
 Each parser takes the path to a TSV file written by the corresponding Tcl
-helper in :mod:`vivado_mcp.tcl` and returns a structured ``dict`` for the
-MCP response payload.
+helper in :mod:`vivado_cli.tcl` and returns a structured ``dict`` for the
+CLI response payload.
 """
 from __future__ import annotations
 

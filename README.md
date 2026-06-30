@@ -1,16 +1,24 @@
-# Vivado MCP
+# Vivado CLI
 
-Vivado MCP is planned as a Model Context Protocol server that lets AI clients operate AMD Vivado through safe, workflow-level tools while the user can watch and interact with the Vivado GUI.
+Vivado CLI is a CLI-first automation layer for AMD Vivado. It keeps Vivado's
+native Tcl as the execution layer, adds persistent session artifacts and
+structured JSON output. MCP support has been removed; the product boundary is
+now the `vivado-cli` command and the Vivado Tcl bridge.
 
-The first design target is not GUI click automation. The preferred mode is a managed Vivado Tcl session that can open the GUI with `start_gui`, load a small Tcl bridge, and let the MCP server submit validated workflow commands into that same Vivado process. Batch mode remains useful for CI and fallback automation.
+The first design target is not GUI click automation. The preferred interactive
+mode is a managed Vivado Tcl session that can open the GUI with `start_gui`,
+load a small Tcl bridge, and let `vivado-cli` submit audited Tcl command files
+into that same Vivado process. Batch mode remains useful for CI and fallback
+automation.
 
 Current design documents:
 
-- [Vivado MCP Design](docs/design/vivado-mcp-design.md)
+- [Vivado CLI Design](docs/design/vivado-cli-design.md)
 - [ADR 0001: Control Vivado through Tcl batch mode](docs/adr/0001-control-vivado-through-tcl-batch-mode.md)
 - [ADR 0002: Support managed GUI Tcl sessions](docs/adr/0002-support-managed-gui-tcl-sessions.md)
 - [ADR 0003: Support trusted-local raw Tcl](docs/adr/0003-support-trusted-local-raw-tcl.md)
 - [ADR 0004: Provide built-in help and skills](docs/adr/0004-provide-built-in-help-and-skills.md)
+- [ADR 0005: Remove MCP adapter and standardize on CLI](docs/adr/0005-remove-mcp-adapter-and-standardize-on-cli.md)
 - [Built-in Skills](docs/skills/README.md)
 
 ## Initial scope
@@ -31,10 +39,10 @@ Current design documents:
 - Run Non-project Mode flows with audit/dry-run support: read RTL/XDC, check prerequisites, execute synth/opt/place/route, write checkpoints, and collect reports.
 - Generate timing, utilization, DRC, methodology, power, and message reports.
 - Parse common report outputs into structured summaries and aggregate report diagnostics with issue IDs, root-cause hints, quality gates, next-action plans, and official-document queries.
-- Perform explicit, read-only hardware discovery for hw_server targets/devices; hardware programming remains out of scope.
+- Perform explicit hardware access for hw_server targets/devices, debug core/probe discovery, VIO probe readback, generic ILA capture/CSV analysis, and VIO-backed SPI register readback; hardware programming remains out of scope for structured commands.
 - Capture JSON state snapshots and diff project/fileset/constraint/IP/BD/run/report state before and after risky or long-running operations.
-- Expose logs and generated reports as MCP resources.
-- Provide built-in help/skills so AI clients can learn the intended Vivado workflows before acting.
+- Store logs and generated reports as session artifacts.
+- Provide built-in help/skills so AI or human CLI callers can learn the intended Vivado workflows before acting.
 - Package AMD official Vivado documentation metadata and topic guidance as the authority layer for help and expert Tcl planning.
 
 ## Capability profiles
@@ -43,16 +51,17 @@ Current design documents:
 - `trusted-local`: workflow tools plus raw Tcl/source-file execution inside the managed Vivado session.
 - `unrestricted`: raw Tcl with minimal policy checks for personal local use.
 
-The prototype bridge in [experiments/mcp_bridge.tcl](experiments/mcp_bridge.tcl) proves the core control path: an external process can submit Tcl files to a live Vivado Tcl/GUI session and receive result files back.
+The packaged bridge in [src/vivado_cli/assets/cli_bridge.tcl](src/vivado_cli/assets/cli_bridge.tcl) is the core control path: `vivado-cli` submits Tcl files to a live Vivado Tcl/GUI session and receives result files back.
 
 ## Built-in help
 
-The MCP should expose tutorial content through both tools and resources:
+The CLI exposes tutorial and authority content through JSON commands:
 
-- `vivado_help`
-- `vivado_list_skills`
-- `vivado_get_skill`
-- `vivado_suggest_next_steps`
+- `vivado-cli help topic <topic>`
+- `vivado-cli skills list`
+- `vivado-cli skills get <skill_id>`
+- `vivado-cli tools list`
+- `vivado-cli tools describe <command-or-tool-id>`
 - `vivado_official_reference_guide`
 - `vivado_search_official_docs`
 - `vivado_tcl_command_help`
@@ -64,9 +73,6 @@ The MCP should expose tutorial content through both tools and resources:
 - `vivado_search_xilinx_docs`
 - `vivado_list_official_references`
 - `vivado_get_official_reference`
-- `vivado://skills/index`
-- `vivado://official-docs/index`
-
 Seed skill docs live in [docs/skills](docs/skills).
 
 The official reference layer stores document IDs, AMD URLs, scope summaries, topic routing, and local filename candidates. It does not copy the full AMD document text into this repository.
@@ -86,35 +92,131 @@ This machine has been tested with:
 C:\Xilinx\Vivado\2023.1\bin\vivado.bat
 ```
 
-## MCP Client Configuration
+The stable local entry point for agents and external tools is:
 
-Use the installed console script as the MCP server command:
-
-```json
-{
-  "mcpServers": {
-    "vivado": {
-      "command": "C:\\Workspace\\Vivado_mcp\\.venv\\Scripts\\vivado-mcp.exe",
-      "env": {
-        "VIVADO_BIN": "C:\\Xilinx\\Vivado\\2023.1\\bin\\vivado.bat",
-        "VIVADO_MCP_WORKSPACE": "C:\\Workspace\\Vivado_mcp",
-        "VIVADO_MCP_ALLOWED_ROOTS": "C:\\Workspace\\Vivado_mcp",
-        "VIVADO_MCP_DOCS_ROOT": "C:\\Database\\FPGA\\Vivado_docs"
-      }
-    }
-  }
-}
+```powershell
+C:\Tools\vivado-cli\bin\vivado-cli.exe
 ```
 
-`VIVADO_MCP_WORKSPACE` is the default working directory for managed sessions. `VIVADO_MCP_ALLOWED_ROOTS` is a semicolon-separated list on Windows; workflow paths such as projects, sources, constraints, and Tcl files in `trusted-local` mode must stay under one of these roots. `VIVADO_MCP_DOCS_ROOT` points to the local AMD Vivado documentation library used by the official-reference index; it defaults to `C:\Database\FPGA\Vivado_docs`. Use `unrestricted` capability profile only for personal experiments that need to source Tcl outside the allowed roots.
+New terminals can also read the full path from:
+
+```powershell
+$env:VIVADO_CLI_EXE
+```
+
+## CLI Usage
+
+`vivado-cli` is the primary entry point. It writes persistent session records
+under `.vivado_cli/sessions`, so separate CLI invocations can operate the same
+live Vivado process.
+
+```powershell
+vivado-cli check-installation --vivado-path C:\Xilinx\Vivado\2023.1\bin\vivado.bat
+
+vivado-cli --workspace C:\Workspace\Vivado_mcp session start `
+  --vivado-path C:\Xilinx\Vivado\2023.1\bin\vivado.bat
+
+vivado-cli --workspace C:\Workspace\Vivado_mcp session open-project `
+  --session <session_ref> `
+  C:\Workspace\Vivado\XCZU19EG\XCZU19EG_TEST\projects\qt7331_adda_2023.1\qt7331_adda_2023.1.xpr
+
+vivado-cli --workspace C:\Workspace\Vivado_mcp bd summary `
+  --session <session_ref> `
+  --design jesd204b_bd `
+  --validate
+
+vivado-cli --workspace C:\Workspace\Vivado_mcp run status `
+  --session <session_ref> `
+  --run synth_1
+
+vivado-cli --workspace C:\Workspace\Vivado_mcp run launch `
+  --session <session_ref> `
+  synth_1 `
+  --jobs 8
+
+vivado-cli --workspace C:\Workspace\Vivado_mcp run launch-local `
+  --session <session_ref> `
+  --jobs 8 `
+  synth_1
+
+vivado-cli --workspace C:\Workspace\Vivado_mcp run diagnose `
+  --session <session_ref> `
+  synth_1
+
+vivado-cli --workspace C:\Workspace\Vivado_mcp run logs `
+  --session <session_ref> `
+  synth_1 `
+  --tail 80
+
+vivado-cli --workspace C:\Workspace\Vivado_mcp run reset `
+  --session <session_ref> `
+  synth_1 `
+  --expect-destructive
+
+vivado-cli --workspace C:\Workspace\Vivado_mcp hw list-debug-cores `
+  --session <session_ref> `
+  --expect-hardware-access
+
+vivado-cli --workspace C:\Workspace\Vivado_mcp hw vio-read `
+  --session <session_ref> `
+  --vio hw_vio_0 `
+  --probe chip_config/spi_read_status `
+  --probe chip_config/spi_read_req `
+  --expect-hardware-access
+
+vivado-cli --workspace C:\Workspace\Vivado_mcp hw vio-write `
+  --session <session_ref> `
+  --vio hw_vio_0 `
+  --set chip_config/spi_read_req=0 `
+  --expect-hardware-access `
+  --expect-vio-write
+
+vivado-cli --workspace C:\Workspace\Vivado_mcp hw capture-ila `
+  --session <session_ref> `
+  --ila hw_ila_0 `
+  --depth 1024 `
+  --analysis adc14 `
+  --sample-rate-hz 312500000 `
+  --label bringup_capture `
+  --expect-hardware-access
+
+vivado-cli --workspace C:\Workspace\Vivado_mcp hw spi-read `
+  --session <session_ref> `
+  --vio hw_vio_0 `
+  --status-probe spi/status `
+  --req-probe spi/req `
+  --target-probe spi/target `
+  --addr-probe spi/addr `
+  --reg 2:0x0281 `
+  --reg 2:0x0300 `
+  --expect-hardware-access
+
+vivado-cli --workspace C:\Workspace\Vivado_mcp tcl review `
+  --file .\scripts\change_bd.tcl
+
+vivado-cli --workspace C:\Workspace\Vivado_mcp session run-tcl `
+  --session <session_ref> `
+  --file .\scripts\change_bd.tcl `
+  --expect-destructive
+```
+
+## Environment
+
+`VIVADO_CLI_WORKSPACE` is the default workspace for managed sessions.
+`VIVADO_CLI_ALLOWED_ROOTS` is a semicolon-separated list on Windows; workflow
+paths such as projects, sources, constraints, and Tcl files in `trusted-local`
+mode must stay under one of these roots. `VIVADO_CLI_DOCS_ROOT` points to the
+local AMD Vivado documentation library used by the official-reference index; it
+defaults to `C:\Database\domains\fpga\xilinx\vivado\docs\raw`. Set
+`VIVADO_CLI_PDFTOTEXT` if `pdftotext` is not on `PATH`.
 
 ## AI Operating Flow
 
-AI clients should use the MCP in this order:
+CLI callers should use this order:
 
 1. Call `vivado_help(topic="official_docs")` or read `vivado://skills/official-docs-reference` before planning unfamiliar Vivado actions.
 2. Call `vivado_official_reference_guide(topic=...)` to select the authoritative AMD manuals for the task.
-3. Call `vivado_get_official_reference(doc_id=...)` for the exact official URL and local PDF candidates under `C:\Database\FPGA\Vivado_docs`.
+3. Call `vivado_get_official_reference(doc_id=...)` for the exact official URL and local PDF candidates under `C:\Database\domains\fpga\xilinx\vivado\docs\raw`.
 4. If local PDFs are missing, call `vivado_sync_official_docs` for the packaged Vivado catalog or `vivado_download_xilinx_pdf` for a specific AMD/Xilinx PDF.
 5. Call `vivado_search_official_docs(query=..., doc_id=... or topic=...)` for exact command names, options, and short local PDF snippets.
 6. Prefer structured workflow tools such as project, source/fileset/constraint, report, and BD tools when they cover the task.
@@ -123,7 +225,7 @@ AI clients should use the MCP in this order:
 9. For simulation work, call `vivado_simulation_audit`, then `vivado_prepare_simulation(dry_run=true)` for non-trivial fileset changes, then `vivado_launch_simulation` and `vivado_analyze_xsim_logs`; pass `capture_diff=true` when launch artifacts/log changes should be audited.
 10. For Non-project Mode work, call `vivado_nonproject_audit`, use `dry_run=true` on `vivado_nonproject_read_sources` or the step tools for non-trivial flows, then run `vivado_nonproject_synth_design`, `vivado_nonproject_opt_design`, `vivado_nonproject_place_design`, and `vivado_nonproject_route_design` as needed.
 11. For hardware discovery, call `vivado_hw_discover(expect_hardware_access=true)` only for read-only hw_server/target/device enumeration; programming remains expert Tcl after review. Use `capture_diff=true` only when you need the surrounding project/report state audit trail.
-12. Call `vivado_tcl_command_help(command=...)` before unfamiliar Tcl commands; it combines official search, MCP tool coverage, and optional installed Vivado help.
+12. Call `vivado_tcl_command_help(command=...)` before unfamiliar Tcl commands; it combines official search, CLI command coverage, and optional installed Vivado help.
 13. Call `vivado_review_tcl(tcl=...)` before expert-mode execution.
 14. Use `vivado_run_tcl` or `vivado_source_tcl` only for commands that are not yet modeled as workflow tools; set `expect_destructive=true` when the review requires it.
 15. For risky or long-running changes, call `vivado_capture_state` before/after and `vivado_state_diff`, or pass `capture_diff=true` to supported mutating tools.
@@ -133,7 +235,7 @@ AI clients should use the MCP in this order:
 
 ## First Manual Test
 
-After connecting the MCP client, use this sequence:
+Use this sequence:
 
 1. `vivado_help` with `topic="gui_session"`.
 2. `vivado_check_installation`.
@@ -229,9 +331,9 @@ After connecting the MCP client, use this sequence:
 .\.venv\Scripts\python.exe -m compileall src
 ```
 
-The test suite includes a fake Vivado process and an MCP protocol smoke test that starts the stdio server and lists tools/resources.
+The test suite includes a fake Vivado process and CLI lifecycle tests.
 
-## Artifact Resources
+## Artifacts
 
 Command files, result files, logs, and reports are stored under the managed session directory and exposed through artifact URIs:
 
@@ -254,9 +356,9 @@ vivado://official-docs/{doc_id}
 
 Use `vivado_official_reference_guide(topic=...)` for AI routing. Current topics include `tcl`, `project`, `bd`, `ip`, `constraints`, `build`, `simulation`, `reports`, `hardware`, `dfx`, `methodology`, `io`, `installation`, `migration`, `libraries`, and `embedded`.
 
-Use `vivado_search_official_docs(query=...)` to search the local PDFs under `C:\Database\FPGA\Vivado_docs`. The server uses `pdftotext` from Poppler and caches extracted text under `.vivado_mcp_text_cache` in the docs root. Set `VIVADO_MCP_PDFTOTEXT` if `pdftotext` is not on `PATH`.
+Use `vivado_search_official_docs(query=...)` to search the local PDFs under `C:\Database\domains\fpga\xilinx\vivado\docs\raw`. The CLI uses `pdftotext` from Poppler and caches extracted text under `.vivado_cli_text_cache` in the docs root. Set `VIVADO_CLI_PDFTOTEXT` if `pdftotext` is not on `PATH`.
 
-The MCP also includes the AMD/Xilinx PDF download workflow from the `download-xilinx-pdf` skill:
+The CLI also includes the AMD/Xilinx PDF download workflow from the `download-xilinx-pdf` skill:
 
 - `vivado_search_xilinx_docs(query=...)`: search AMD KHub.
 - `vivado_download_xilinx_pdf(source=...)`: resolve AMD Fluid Topics `/go`, `/v/u`, and `/r/{mapId}/root` pages, download through KHub content APIs, and verify the `%PDF` signature.
@@ -266,6 +368,6 @@ The MCP also includes the AMD/Xilinx PDF download workflow from the `download-xi
 ## Explicitly out of scope for the first version
 
 - GUI click automation.
-- Attaching to an arbitrary already-open Vivado process that did not load the MCP bridge.
+- Attaching to an arbitrary already-open Vivado process that did not load the CLI bridge.
 - Hardware programming, configuration-memory writes, boot operations, and debug/probe mutation. Read-only hardware discovery is supported with explicit confirmation.
 - Advanced IP Integrator automation beyond the generic BD action model.

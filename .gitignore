@@ -4,6 +4,12 @@ vivado*.jou
 vivado*.str
 *.backup.log
 *.backup.jou
+.Xil/
+.tmp/
+.vivado_cli/
+hs_err_pid*.log
+petalinux_installation_log
+ila_adc_capture.csv
 
 # Vivado MCP experiment sessions
 .vivado_mcp_session*/

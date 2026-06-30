@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from vivado_mcp.nonproject_summary import analyze_nonproject_audit, nonproject_step_prerequisites, parse_nonproject_summary
+from vivado_cli.nonproject_summary import analyze_nonproject_audit, nonproject_step_prerequisites, parse_nonproject_summary
 
 
 def test_parse_nonproject_summary_extracts_files_steps_reports(tmp_path: Path) -> None:

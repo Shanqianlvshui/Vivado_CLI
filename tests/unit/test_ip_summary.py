@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from vivado_mcp.ip_summary import analyze_ip_upgrade, parse_ip_catalog, parse_ip_detail, parse_ip_list
+from vivado_cli.ip_summary import analyze_ip_upgrade, parse_ip_catalog, parse_ip_detail, parse_ip_list
 
 
 def test_parse_ip_catalog_returns_search_rows(tmp_path: Path) -> None:

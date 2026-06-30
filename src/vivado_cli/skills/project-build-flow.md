@@ -1,6 +1,6 @@
 # Skill: Project Build Flow
 
-Use this for ordinary Project Mode FPGA work: open a project, inspect state, run synthesis/implementation, generate reports, and summarize failures.
+Use this for ordinary Project Mode FPGA work: create/open a project, add files, run synthesis/implementation, generate reports, and summarize failures.
 
 ## Normal Flow
 
@@ -24,4 +24,3 @@ Use this for ordinary Project Mode FPGA work: open a project, inspect state, run
 - Use `run diagnose` before retrying a queued or failed run.
 - Use `run logs` to read bounded logs instead of pasting entire run directories.
 - Fix missing constraints, stale IP/output products, and DRC issues before treating implementation strategy as the main problem.
-

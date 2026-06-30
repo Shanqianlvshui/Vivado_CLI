@@ -40,6 +40,7 @@ Use this whenever a Vivado task depends on command syntax, flow rules, object pr
 - The CLI package includes official-document metadata and routing guidance, not the full AMD document text or every individual IP product guide.
 - The default local documentation root is `C:\Database\domains\fpga\xilinx\vivado\docs\raw`; deployments can override it with `VIVADO_CLI_DOCS_ROOT`.
 - Local PDF search uses Poppler `pdftotext`; set `VIVADO_CLI_PDFTOTEXT` when it is not on `PATH`.
+- PDF download uses AMD KHub APIs and verifies the `%PDF` signature instead of saving Fluid Topics HTML pages.
 - If an installed Vivado version differs from the packaged guide version, prefer the installed Vivado command help for version-specific syntax checks.
 - Do not assume every UG835 command has a structured CLI command. Expert mode can run raw Tcl, but workflow commands should stay the first choice for repeatable operations.
 - For destructive or hardware-affecting Tcl, use `vivado-cli tcl review`, call out the risk before execution, and pass `--expect-destructive`.

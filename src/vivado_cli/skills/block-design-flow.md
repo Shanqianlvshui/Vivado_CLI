@@ -17,4 +17,3 @@ Use this when the user wants generic Vivado IP Integrator or block design develo
 - Prefer `bd_path` when the user identifies a specific `.bd` file.
 - Prefer `design_name` when creating a new generic block design.
 - Use raw Tcl only when a requested IP Integrator action is not represented by current CLI commands.
-

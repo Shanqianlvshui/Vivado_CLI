@@ -36,6 +36,7 @@ def diff_states(before: State, after: State) -> dict[str, Any]:
         },
         "filesets": {
             "filesets": _list_dict_diff(_fileset_list(before), _fileset_list(after), "name"),
+            "descriptions": _list_dict_diff(_fileset_descriptions(before), _fileset_descriptions(after), "name"),
         },
         "runs": {
             "runs": _list_dict_diff(_project_list(before, "runs"), _project_list(after, "runs"), "name"),
@@ -85,6 +86,10 @@ def _project_list(state: State, key: str) -> list[Any]:
 
 def _fileset_list(state: State) -> list[dict[str, Any]]:
     return _list_dicts(_mapping(state.get("filesets")).get("filesets"))
+
+
+def _fileset_descriptions(state: State) -> list[dict[str, Any]]:
+    return _list_dicts(state.get("fileset_descriptions"))
 
 
 def _ip_list(state: State) -> list[dict[str, Any]]:
@@ -226,19 +231,20 @@ def _recommendations(changes: list[dict[str, Any]]) -> list[dict[str, str]]:
         item = change.get("item")
         text = json.dumps(_normalize(item), sort_keys=True, ensure_ascii=True).lower()
         if domain == "filesets" or "top" in text:
-            add("vivado_source_audit", "Project fileset or top-related state changed; audit sources and active filesets.")
+            add("vivado-cli fileset describe", "Project fileset or top-related state changed; inspect source membership and fileset properties.")
+            add("vivado-cli project summary", "Refresh project source and run state after fileset changes.")
         if domain == "constraints":
-            add("vivado_xdc_order_check", "Constraint files, XDC markers, or constraint warnings changed; verify XDC order and scope.")
+            add("vivado-cli constraint check-order", "Constraint files, XDC markers, or constraint warnings changed; verify XDC order and scope.")
         if domain == "ip":
-            add("vivado_describe_ip", "IP lock, upgrade, generation, or XCI state changed; inspect affected IP details.")
+            add("vivado-cli tcl help create_ip", "IP lock, upgrade, generation, or XCI state changed; inspect affected IP details.")
         if domain == "runs" or (section == "runs" and any(word in text for word in ("fail", "error", "complete"))):
-            add("vivado_analyze_reports", "Run state changed; inspect timing, utilization, DRC, power, and methodology reports.")
+            add("vivado-cli report", "Run state changed; inspect timing, utilization, DRC, power, and methodology reports.")
         if domain == "reports":
-            add("vivado_analyze_reports", "Report artifacts changed; refresh aggregate report diagnostics.")
+            add("vivado-cli report", "Report artifacts changed; refresh aggregate report diagnostics.")
         if domain == "block_design":
-            add("vivado_bd_summary", "Block design objects changed; refresh BD summary or validation state.")
+            add("vivado-cli bd summary", "Block design objects changed; refresh BD summary or validation state.")
         if domain == "hardware":
-            add("vivado_hw_discover", "Hardware discovery state changed; refresh read-only target/device discovery if needed.")
+            add("vivado-cli hw list-debug-cores", "Hardware discovery state changed; refresh read-only target/device discovery if needed.")
     return recommendations
 
 
@@ -268,6 +274,7 @@ def _explain_change(domain: str, section: str, kind: str, item: Any) -> str:
         "runs": "run",
         "ips": "IP",
         "filesets": "fileset",
+        "descriptions": "fileset detail",
         "constraint_files": "constraint file",
         "constrs_filesets": "constraint fileset",
         "xdc_markers": "XDC marker count",

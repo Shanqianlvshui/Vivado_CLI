@@ -3,14 +3,12 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "vivado-mcp"
+name = "vivado-cli"
 version = "0.1.0"
-description = "MCP server for controlling AMD Vivado through managed Tcl/GUI sessions"
+description = "CLI for controlling AMD Vivado through managed Tcl/GUI sessions"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = [
-  "mcp>=1.28.0",
-]
+dependencies = []
 
 [project.optional-dependencies]
 dev = [
@@ -18,13 +16,13 @@ dev = [
 ]
 
 [project.scripts]
-vivado-mcp = "vivado_mcp.server:main"
+vivado-cli = "vivado_cli.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-vivado_mcp = [
+vivado_cli = [
   "assets/*.tcl",
   "skills/*.md",
 ]
@@ -32,4 +30,3 @@ vivado_mcp = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-

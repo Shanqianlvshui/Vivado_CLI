@@ -248,6 +248,107 @@ def build_parser() -> argparse.ArgumentParser:
     project_summary.add_argument("--timeout", type=int, default=60)
     project_summary.set_defaults(func=_cmd_project_summary)
 
+    fileset = sub.add_parser("fileset", help="Inspect and mutate Vivado filesets.")
+    fileset_sub = fileset.add_subparsers(dest="fileset_command", required=True)
+    fileset_list = fileset_sub.add_parser("list", help="List project filesets.")
+    _add_session_arg(fileset_list)
+    fileset_list.add_argument("--timeout", type=int, default=60)
+    fileset_list.set_defaults(func=_cmd_fileset_list)
+
+    fileset_describe = fileset_sub.add_parser("describe", help="Describe one fileset and its files.")
+    _add_session_arg(fileset_describe)
+    fileset_describe.add_argument("name")
+    fileset_describe.add_argument("--timeout", type=int, default=60)
+    fileset_describe.set_defaults(func=_cmd_fileset_describe)
+
+    fileset_create = fileset_sub.add_parser("create", help="Create a Vivado fileset.")
+    _add_session_arg(fileset_create)
+    fileset_create.add_argument("name")
+    fileset_create.add_argument("--type", dest="kind", default="Source", help="Vivado fileset type, e.g. Source, simulation, constrs.")
+    fileset_create.add_argument("--timeout", type=int, default=60)
+    _add_state_diff_arg(fileset_create)
+    fileset_create.set_defaults(func=_cmd_fileset_create)
+
+    fileset_add = fileset_sub.add_parser("add-files", help="Add source files to a fileset with optional source properties.")
+    _add_session_arg(fileset_add)
+    fileset_add.add_argument("fileset")
+    fileset_add.add_argument("--file", dest="files", action="append", required=True)
+    fileset_add.add_argument("--include-dir", dest="include_dirs", action="append")
+    fileset_add.add_argument("--define", dest="defines", action="append")
+    fileset_add.add_argument("--top")
+    fileset_add.add_argument("--library")
+    fileset_add.add_argument("--file-type")
+    fileset_add.add_argument("--used-in", dest="used_in", action="append", choices=["synthesis", "simulation", "implementation"])
+    fileset_add.add_argument("--processing-order", type=int)
+    fileset_add.add_argument("--timeout", type=int, default=60)
+    _add_state_diff_arg(fileset_add)
+    fileset_add.set_defaults(func=_cmd_fileset_add_files)
+
+    fileset_remove = fileset_sub.add_parser("remove-files", help="Remove files from a project or fileset.")
+    _add_session_arg(fileset_remove)
+    fileset_remove.add_argument("--fileset")
+    fileset_remove.add_argument("--file", dest="files", action="append", required=True)
+    fileset_remove.add_argument("--force", action="store_true")
+    fileset_remove.add_argument("--expect-destructive", action="store_true")
+    fileset_remove.add_argument("--timeout", type=int, default=60)
+    _add_state_diff_arg(fileset_remove)
+    fileset_remove.set_defaults(func=_cmd_fileset_remove_files)
+
+    fileset_props = fileset_sub.add_parser("set-file-properties", help="Set properties on files scoped by an optional fileset.")
+    _add_session_arg(fileset_props)
+    fileset_props.add_argument("--fileset")
+    fileset_props.add_argument("--file", dest="files", action="append", required=True)
+    fileset_props.add_argument("--property", dest="properties", action="append", required=True, help="Property assignment KEY=VALUE. Repeatable.")
+    fileset_props.add_argument("--timeout", type=int, default=60)
+    _add_state_diff_arg(fileset_props)
+    fileset_props.set_defaults(func=_cmd_fileset_set_file_properties)
+
+    fileset_top = fileset_sub.add_parser("set-top", help="Set or query a fileset TOP property.")
+    _add_session_arg(fileset_top)
+    fileset_top.add_argument("--fileset")
+    fileset_top.add_argument("--top", help="Top module/entity name. Omit to query.")
+    fileset_top.add_argument("--timeout", type=int, default=60)
+    _add_state_diff_arg(fileset_top)
+    fileset_top.set_defaults(func=_cmd_fileset_set_top)
+
+    fileset_apply = fileset_sub.add_parser("apply", help="Apply fileset-level top, include dir, define, and property settings.")
+    _add_session_arg(fileset_apply)
+    fileset_apply.add_argument("fileset")
+    fileset_apply.add_argument("--include-dir", dest="include_dirs", action="append")
+    fileset_apply.add_argument("--define", dest="defines", action="append")
+    fileset_apply.add_argument("--top")
+    fileset_apply.add_argument("--property", dest="properties", action="append", help="Property assignment KEY=VALUE. Repeatable.")
+    fileset_apply.add_argument("--no-update-compile-order", action="store_true")
+    fileset_apply.add_argument("--timeout", type=int, default=60)
+    _add_state_diff_arg(fileset_apply)
+    fileset_apply.set_defaults(func=_cmd_fileset_apply)
+
+    constraint = sub.add_parser("constraint", help="Inspect and mutate Vivado constraint sets.")
+    constraint_sub = constraint.add_subparsers(dest="constraint_command", required=True)
+    constraint_diag = constraint_sub.add_parser("diagnostics", help="Inspect XDC filesets, file order, and basic constraint markers.")
+    _add_session_arg(constraint_diag)
+    constraint_diag.add_argument("--timeout", type=int, default=60)
+    constraint_diag.set_defaults(func=_cmd_constraint_diagnostics)
+
+    constraint_order = constraint_sub.add_parser("check-order", help="Analyze XDC order and suggest a reorder plan.")
+    _add_session_arg(constraint_order)
+    constraint_order.add_argument("--timeout", type=int, default=60)
+    constraint_order.set_defaults(func=_cmd_constraint_check_order)
+
+    constraint_apply = constraint_sub.add_parser("apply", help="Apply XDC add/remove/used-in/reorder/active settings to a constraint set.")
+    _add_session_arg(constraint_apply)
+    constraint_apply.add_argument("fileset")
+    constraint_apply.add_argument("--create-if-missing", action="store_true")
+    constraint_apply.add_argument("--add", action="append", help="XDC file to add. Repeatable.")
+    constraint_apply.add_argument("--remove", action="append", help="XDC file to remove. Repeatable.")
+    constraint_apply.add_argument("--used-in", dest="used_in", action="append", choices=["synthesis", "simulation", "implementation"])
+    constraint_apply.add_argument("--reorder", action="append", help="Full desired XDC order for this fileset. Repeatable.")
+    constraint_apply.add_argument("--active", action="store_true", help="Make this constraint set current.")
+    constraint_apply.add_argument("--expect-destructive", action="store_true")
+    constraint_apply.add_argument("--timeout", type=int, default=60)
+    _add_state_diff_arg(constraint_apply)
+    constraint_apply.set_defaults(func=_cmd_constraint_apply)
+
     run = sub.add_parser("run", help="Inspect and launch Vivado project runs.")
     run_sub = run.add_subparsers(dest="run_command", required=True)
     run_status = run_sub.add_parser("status", help="Show current run status without launching work.")
@@ -308,6 +409,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _add_session_arg(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--session", required=True, help="CLI session_ref.")
+
+
+def _add_state_diff_arg(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--no-state-diff",
+        action="store_true",
+        help="Skip automatic before/after state snapshots for this mutating command.",
+    )
 
 
 def _cmd_check_installation(args: argparse.Namespace) -> dict[str, object]:
@@ -580,6 +689,136 @@ def _cmd_project_summary(args: argparse.Namespace) -> dict[str, object]:
     )
 
 
+def _cmd_fileset_list(args: argparse.Namespace) -> dict[str, object]:
+    return cli_core.fileset_list(
+        workspace=args.workspace,
+        session_ref=args.session,
+        timeout_seconds=args.timeout,
+    )
+
+
+def _cmd_fileset_describe(args: argparse.Namespace) -> dict[str, object]:
+    return cli_core.fileset_describe(
+        workspace=args.workspace,
+        session_ref=args.session,
+        name=args.name,
+        timeout_seconds=args.timeout,
+    )
+
+
+def _cmd_fileset_create(args: argparse.Namespace) -> dict[str, object]:
+    return cli_core.fileset_create(
+        workspace=args.workspace,
+        session_ref=args.session,
+        name=args.name,
+        kind=args.kind,
+        timeout_seconds=args.timeout,
+        state_diff=not args.no_state_diff,
+    )
+
+
+def _cmd_fileset_add_files(args: argparse.Namespace) -> dict[str, object]:
+    return cli_core.fileset_add_files(
+        workspace=args.workspace,
+        session_ref=args.session,
+        fileset=args.fileset,
+        files=args.files,
+        include_dirs=args.include_dirs,
+        defines=args.defines,
+        top=args.top,
+        library=args.library,
+        file_type=args.file_type,
+        used_in=args.used_in,
+        processing_order=args.processing_order,
+        timeout_seconds=args.timeout,
+        state_diff=not args.no_state_diff,
+    )
+
+
+def _cmd_fileset_remove_files(args: argparse.Namespace) -> dict[str, object]:
+    return cli_core.fileset_remove_files(
+        workspace=args.workspace,
+        session_ref=args.session,
+        files=args.files,
+        fileset=args.fileset,
+        force=args.force,
+        timeout_seconds=args.timeout,
+        expect_destructive=args.expect_destructive,
+        state_diff=not args.no_state_diff,
+    )
+
+
+def _cmd_fileset_set_file_properties(args: argparse.Namespace) -> dict[str, object]:
+    return cli_core.fileset_set_file_properties(
+        workspace=args.workspace,
+        session_ref=args.session,
+        files=args.files,
+        properties=_parse_assignments(args.properties, "--property"),
+        fileset=args.fileset,
+        timeout_seconds=args.timeout,
+        state_diff=not args.no_state_diff,
+    )
+
+
+def _cmd_fileset_set_top(args: argparse.Namespace) -> dict[str, object]:
+    return cli_core.fileset_set_top(
+        workspace=args.workspace,
+        session_ref=args.session,
+        top=args.top,
+        fileset=args.fileset,
+        timeout_seconds=args.timeout,
+        state_diff=not args.no_state_diff,
+    )
+
+
+def _cmd_fileset_apply(args: argparse.Namespace) -> dict[str, object]:
+    return cli_core.fileset_apply(
+        workspace=args.workspace,
+        session_ref=args.session,
+        fileset=args.fileset,
+        include_dirs=args.include_dirs,
+        defines=args.defines,
+        top=args.top,
+        properties=_parse_assignments(args.properties or [], "--property") if args.properties else None,
+        update_compile_order=not args.no_update_compile_order,
+        timeout_seconds=args.timeout,
+        state_diff=not args.no_state_diff,
+    )
+
+
+def _cmd_constraint_diagnostics(args: argparse.Namespace) -> dict[str, object]:
+    return cli_core.constraint_diagnostics(
+        workspace=args.workspace,
+        session_ref=args.session,
+        timeout_seconds=args.timeout,
+    )
+
+
+def _cmd_constraint_check_order(args: argparse.Namespace) -> dict[str, object]:
+    return cli_core.constraint_check_order(
+        workspace=args.workspace,
+        session_ref=args.session,
+        timeout_seconds=args.timeout,
+    )
+
+
+def _cmd_constraint_apply(args: argparse.Namespace) -> dict[str, object]:
+    return cli_core.constraint_apply(
+        workspace=args.workspace,
+        session_ref=args.session,
+        fileset=args.fileset,
+        create_if_missing=args.create_if_missing,
+        add=args.add,
+        remove=args.remove,
+        used_in=args.used_in,
+        reorder=args.reorder,
+        active=True if args.active else None,
+        timeout_seconds=args.timeout,
+        expect_destructive=args.expect_destructive,
+        state_diff=not args.no_state_diff,
+    )
+
+
 def _cmd_run_status(args: argparse.Namespace) -> dict[str, object]:
     return cli_core.run_status(
         workspace=args.workspace,
@@ -716,6 +955,19 @@ def _parse_vio_writes(items: list[str]) -> list[dict[str, str]]:
             raise ValueError(f"--set value must not be empty, got {item!r}")
         writes.append({"probe": probe.strip(), "value": value.strip()})
     return writes
+
+
+def _parse_assignments(items: list[str], option_name: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for item in items:
+        key, separator, value = str(item).partition("=")
+        if not separator:
+            raise ValueError(f"{option_name} must be KEY=VALUE, got {item!r}")
+        key = key.strip()
+        if not key:
+            raise ValueError(f"{option_name} key must not be empty, got {item!r}")
+        values[key] = value.strip()
+    return values
 
 
 if __name__ == "__main__":

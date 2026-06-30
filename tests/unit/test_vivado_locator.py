@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from vivado_mcp.vivado_locator import check_vivado
+from vivado_cli.vivado_locator import check_vivado
 
 
 def test_check_vivado_with_fake_executable(tmp_path: Path) -> None:
