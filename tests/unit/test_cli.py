@@ -147,6 +147,48 @@ def test_cli_help_topic_returns_structured_guidance(capsys) -> None:
     assert "vivado://skills/project-build-flow" in payload["help"]["related_resources"]
 
 
+def test_cli_assist_next_routes_goal_for_ai_callers(capsys) -> None:
+    code = cli.main(["assist", "next", "--goal", "fix XDC order and set top include dirs"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["mode"] == "assist_next"
+    assert payload["context"]["has_session"] is False
+    assert payload["context"]["has_project"] is False
+    assert "vivado-cli fileset list" in payload["recommended_tools"]
+    assert "vivado-cli constraint check-order" in payload["recommended_tools"]
+    assert payload["related_resources"] == ["vivado://skills/fileset-constraint-flow"]
+
+
+def test_cli_assist_next_can_review_tcl_draft(capsys) -> None:
+    code = cli.main(["assist", "next", "--goal", "program device", "--tcl", "program_hw_devices [current_hw_device]"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["tcl_review"]["requires_expect_destructive"] is True
+    assert payload["tcl_review"]["source"]["kind"] == "tcl"
+    assert "vivado-cli tcl help program_hw_devices" in payload["recommended_tools"]
+    assert "vivado-cli session run-tcl --expect-destructive" in payload["recommended_tools"]
+
+
+def test_cli_assist_next_does_not_treat_dead_session_project_as_open(capsys, monkeypatch) -> None:
+    monkeypatch.setattr(
+        cli.cli_core,
+        "session_state",
+        lambda **_kwargs: {"process_running": False, "current_project_path": "C:/stale/demo.xpr"},
+    )
+
+    code = cli.main(["assist", "next", "--session", "stale", "--goal", "build project"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["context"]["has_session"] is False
+    assert payload["context"]["has_project"] is False
+    assert payload["recommended_tools"][:2] == ["vivado-cli check-installation", "vivado-cli session start"]
+
+
 def test_cli_tools_list_and_describe(capsys) -> None:
     code = cli.main(["tools", "list", "--query", "launch-local"])
 
@@ -205,6 +247,17 @@ def test_cli_tools_list_and_describe(capsys) -> None:
     xdc_tool = json.loads(capsys.readouterr().out)["tool"]
     assert xdc_tool["tool_id"] == "vivado_xdc_order_check"
     assert xdc_tool["risk_level"] == "read_only"
+
+    code = cli.main(["tools", "list", "--query", "assist"])
+    assert code == 0
+    assist_tools = json.loads(capsys.readouterr().out)
+    assert [tool["command"] for tool in assist_tools["tools"]] == ["assist next"]
+
+    code = cli.main(["tools", "describe", "assist", "next"])
+    assert code == 0
+    assist_tool = json.loads(capsys.readouterr().out)["tool"]
+    assert assist_tool["tool_id"] == "vivado_assist_next"
+    assert assist_tool["risk_level"] == "read_only"
 
 
 def test_cli_adopts_existing_bridge_session(tmp_path: Path, capsys) -> None:

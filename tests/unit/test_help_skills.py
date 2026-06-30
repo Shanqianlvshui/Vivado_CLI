@@ -29,6 +29,9 @@ def test_reads_skill_body() -> None:
 
 
 def test_help_topic_points_to_skill() -> None:
+    index_help = help_topic("index")
+    assert "vivado-cli assist next" in index_help["recommended_tools"]
+
     help_result = help_topic("gui_session")
     assert help_result["related_resources"] == ["vivado://skills/gui-session"]
 

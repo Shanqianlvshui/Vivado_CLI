@@ -10,7 +10,7 @@ from typing import Any, Sequence
 
 from . import __version__
 from . import cli_core
-from .help_skills import get_skill, help_topic, list_skills
+from .help_skills import get_skill, help_topic, list_skills, suggest_next_steps
 from .official_docs import search_official_docs
 from .tcl_assist import build_tcl_command_help, review_tcl, tcl_command_doc_topic
 from .tool_catalog import describe_tool, list_tools
@@ -150,6 +150,21 @@ def build_parser() -> argparse.ArgumentParser:
     tools_describe = tools_sub.add_parser("describe", help="Describe one implemented CLI command.")
     tools_describe.add_argument("name", nargs="+", help="Command words or tool_id, e.g. 'run launch-local'.")
     tools_describe.set_defaults(func=_cmd_tools_describe)
+
+    assist = sub.add_parser("assist", help="Generate AI-friendly next-step guidance.")
+    assist_sub = assist.add_subparsers(dest="assist_command", required=True)
+    assist_next = assist_sub.add_parser("next", help="Recommend the next CLI actions from a goal, session, error, or Tcl draft.")
+    assist_next.add_argument("--goal", help="Intended task or workflow goal.")
+    assist_next.add_argument("--last-error", help="Latest error text or failure symptom to route from.")
+    assist_next.add_argument("--session", help="Optional session_ref used to infer live session and project state.")
+    project_state = assist_next.add_mutually_exclusive_group(required=False)
+    project_state.add_argument("--has-project", action="store_true", help="Tell the planner that a Vivado project is already open.")
+    project_state.add_argument("--no-project", action="store_true", help="Tell the planner that no Vivado project is open yet.")
+    assist_source = assist_next.add_mutually_exclusive_group(required=False)
+    assist_source.add_argument("--tcl", help="Optional Tcl draft to review while planning.")
+    assist_source.add_argument("--file", help="Read an optional Tcl draft from this file while planning.")
+    assist_source.add_argument("--stdin", action="store_true", help="Read an optional Tcl draft from stdin while planning.")
+    assist_next.set_defaults(func=_cmd_assist_next)
 
     bd = sub.add_parser("bd", help="Inspect and validate block designs.")
     bd_sub = bd.add_subparsers(dest="bd_command", required=True)
@@ -500,26 +515,39 @@ def _cmd_source_tcl(args: argparse.Namespace) -> dict[str, object]:
     )
 
 
-def _cmd_tcl_review(args: argparse.Namespace) -> dict[str, object]:
-    sources = [
-        source
-        for source in (("tcl", args.tcl), ("file", args.file), ("stdin", args.stdin), ("path", args.path))
-        if source[1] is not None and source[1] is not False
-    ]
-    if len(sources) != 1:
+def _read_tcl_source_from_args(args: argparse.Namespace, *, required: bool) -> tuple[str, dict[str, object]] | None:
+    candidates = (
+        ("tcl", getattr(args, "tcl", None)),
+        ("file", getattr(args, "file", None)),
+        ("stdin", getattr(args, "stdin", False)),
+        ("path", getattr(args, "path", None)),
+    )
+    sources = [source for source in candidates if source[1] is not None and source[1] is not False]
+    if required and len(sources) != 1:
         raise ValueError("Provide exactly one Tcl source: --tcl, --file, --stdin, or PATH.")
+    if not required:
+        if not sources:
+            return None
+        if len(sources) != 1:
+            raise ValueError("Provide at most one Tcl source: --tcl, --file, or --stdin.")
+
     source_kind, source_value = sources[0]
     source: dict[str, object] = {"kind": source_kind}
     if source_kind == "tcl":
-        tcl = source_value
+        tcl = str(source_value)
     elif source_kind == "stdin":
         tcl = sys.stdin.read()
     else:
-        path = Path(source_value).resolve()
+        path = Path(str(source_value)).resolve()
         tcl = path.read_text(encoding="utf-8")
         source["path"] = str(path)
     source["line_count"] = len(tcl.splitlines())
     source["sha256"] = hashlib.sha256(tcl.encode("utf-8")).hexdigest()
+    return tcl, source
+
+
+def _cmd_tcl_review(args: argparse.Namespace) -> dict[str, object]:
+    tcl, source = _read_tcl_source_from_args(args, required=True) or ("", {})
     result = review_tcl(tcl, intended_goal=args.goal)
     result["source"] = source
     return result
@@ -579,6 +607,77 @@ def _cmd_tools_list(args: argparse.Namespace) -> dict[str, object]:
 
 def _cmd_tools_describe(args: argparse.Namespace) -> dict[str, object]:
     return {"ok": True, "tool": describe_tool(" ".join(args.name))}
+
+
+def _cmd_assist_next(args: argparse.Namespace) -> dict[str, object]:
+    warnings: list[str] = []
+    session_state: dict[str, object] | None = None
+    has_session = bool(args.session)
+    has_project: bool | None
+    project_state_overridden = True
+    if args.has_project:
+        has_project = True
+    elif args.no_project:
+        has_project = False
+    else:
+        has_project = None
+        project_state_overridden = False
+
+    if args.session:
+        try:
+            session_state = cli_core.session_state(workspace=args.workspace, session_ref=args.session)
+            has_session = bool(session_state.get("process_running"))
+            if has_project is None:
+                has_project = has_session and bool(session_state.get("current_project_path"))
+        except Exception as exc:  # noqa: BLE001 - Planning should still work when a stale session ref is supplied.
+            warnings.append(f"Could not read session {args.session!r}: {exc}")
+            has_session = False
+
+    if has_project is None or (not has_session and not project_state_overridden):
+        has_project = False
+
+    tcl_review = None
+    source = _read_tcl_source_from_args(args, required=False)
+    route_goal_parts = [args.goal or ""]
+    if source is not None:
+        tcl_text, source_meta = source
+        tcl_review = review_tcl(tcl_text, intended_goal=args.goal)
+        tcl_review["source"] = source_meta
+        route_goal_parts.extend(str(command) for command in tcl_review.get("commands", []))
+
+    routed_goal = " ".join(part for part in route_goal_parts if part).strip() or None
+    plan = suggest_next_steps(
+        goal=routed_goal,
+        last_error=args.last_error,
+        has_session=has_session,
+        has_project=has_project,
+    )
+    recommended_tools = [
+        str(row["tool"])
+        for row in plan.get("recommendations", [])
+        if isinstance(row, dict) and row.get("tool")
+    ]
+    if tcl_review:
+        recommended_tools.extend(str(tool) for tool in tcl_review.get("recommended_tools", []))
+
+    return {
+        "ok": True,
+        "mode": "assist_next",
+        "goal": args.goal,
+        "last_error": args.last_error,
+        "context": {
+            "workspace": str(Path(args.workspace).resolve()),
+            "session_ref": args.session,
+            "has_session": has_session,
+            "has_project": has_project,
+            "session_state": session_state,
+            "warnings": warnings,
+        },
+        "recommendations": plan.get("recommendations", []),
+        "recommended_tools": _dedupe(recommended_tools),
+        "related_resources": plan.get("related_resources", []),
+        "tcl_review": tcl_review,
+    }
 
 
 def _cmd_bd_summary(args: argparse.Namespace) -> dict[str, object]:
@@ -968,6 +1067,17 @@ def _parse_assignments(items: list[str], option_name: str) -> dict[str, str]:
             raise ValueError(f"{option_name} key must not be empty, got {item!r}")
         values[key] = value.strip()
     return values
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
 
 
 if __name__ == "__main__":

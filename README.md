@@ -60,6 +60,7 @@ The packaged bridge in [src/vivado_cli/assets/cli_bridge.tcl](src/vivado_cli/ass
 The CLI exposes tutorial and authority content through JSON commands:
 
 - `vivado-cli help topic <topic>`
+- `vivado-cli assist next --goal "<task>"`
 - `vivado-cli skills list`
 - `vivado-cli skills get <skill_id>`
 - `vivado-cli tools list`
@@ -232,13 +233,14 @@ defaults to `C:\Database\domains\fpga\xilinx\vivado\docs\raw`. Set
 
 CLI callers should use this order:
 
-1. Discover the available surface with `vivado-cli tools list`, `vivado-cli tools describe <command>`, `vivado-cli skills list`, and `vivado-cli skills get <skill_id>`.
-2. Use `vivado-cli tcl help <command>` before unfamiliar Vivado Tcl; it combines official-document search, CLI coverage guidance, and optional installed Vivado help when a session is attached.
-3. Use structured commands first: `project summary`, `fileset ...`, `constraint ...`, `bd ...`, `run ...`, `report`, and `hw ...`.
-4. Use `vivado-cli tcl review` before raw expert Tcl, then `vivado-cli session run-tcl` or `vivado-cli session source-tcl` only when no structured command covers the task.
-5. Pass explicit acknowledgements for risky actions, such as `--expect-destructive`, `--expect-hardware-access`, and `--expect-vio-write`.
-6. Read `state_tracking` and `state_diff` from mutating fileset/constraint commands before launching long runs or handing the session to another agent.
-7. After mutating project state, refresh with `vivado-cli project summary`, `vivado-cli fileset describe`, `vivado-cli constraint check-order`, `vivado-cli bd summary`, or `vivado-cli run diagnose` as appropriate.
+1. Start with `vivado-cli assist next --goal "<task>"` and include `--session`, `--last-error`, or a Tcl draft with `--tcl` / `--file` when available.
+2. Discover the available surface with `vivado-cli tools list`, `vivado-cli tools describe <command>`, `vivado-cli skills list`, and `vivado-cli skills get <skill_id>`.
+3. Use `vivado-cli tcl help <command>` before unfamiliar Vivado Tcl; it combines official-document search, CLI coverage guidance, and optional installed Vivado help when a session is attached.
+4. Use structured commands first: `project summary`, `fileset ...`, `constraint ...`, `bd ...`, `run ...`, `report`, and `hw ...`.
+5. Use `vivado-cli tcl review` before raw expert Tcl, then `vivado-cli session run-tcl` or `vivado-cli session source-tcl` only when no structured command covers the task.
+6. Pass explicit acknowledgements for risky actions, such as `--expect-destructive`, `--expect-hardware-access`, and `--expect-vio-write`.
+7. Read `state_tracking` and `state_diff` from mutating fileset/constraint commands before launching long runs or handing the session to another agent.
+8. After mutating project state, refresh with `vivado-cli project summary`, `vivado-cli fileset describe`, `vivado-cli constraint check-order`, `vivado-cli bd summary`, or `vivado-cli run diagnose` as appropriate.
 
 ## First Manual Test
 
@@ -265,6 +267,7 @@ groups are:
 - `tcl help|review`
 - `skills list|get`
 - `help topic`
+- `assist next`
 - `tools list|describe`
 - `project summary`
 - `fileset list|describe|create|add-files|remove-files|set-file-properties|set-top|apply`

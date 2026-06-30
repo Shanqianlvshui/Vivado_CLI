@@ -105,7 +105,7 @@ def help_topic(topic: str | None = None) -> dict[str, object]:
         return {
             "topic": "index",
             "summary": "Vivado CLI exposes GUI sessions, project workflow commands, raw Tcl expert mode, and built-in skills.",
-            "recommended_tools": ["vivado-cli skills list", "vivado-cli tools list", "vivado-cli check-installation"],
+            "recommended_tools": ["vivado-cli assist next", "vivado-cli skills list", "vivado-cli tools list", "vivado-cli check-installation"],
             "related_resources": ["vivado://skills/index"],
         }
     if normalized in {"gui", "gui-session", "session"}:
@@ -246,6 +246,7 @@ def help_topic(topic: str | None = None) -> dict[str, object]:
             "topic": "session_recovery",
             "summary": "Recover long-running Vivado work by reading the session timeline, latest analyses, snapshots, summaries, reports, checkpoints, and next-action plan.",
             "recommended_tools": [
+                "vivado-cli assist next",
                 "vivado-cli session list",
                 "vivado-cli session state",
                 "vivado-cli project summary",
@@ -260,6 +261,7 @@ def help_topic(topic: str | None = None) -> dict[str, object]:
             "topic": "raw_tcl",
             "summary": "Raw Tcl is available in trusted-local/unrestricted profiles and can do anything Vivado Tcl can do.",
             "recommended_tools": [
+                "vivado-cli assist next --tcl <script>",
                 "vivado-cli tcl help <command>",
                 "vivado-cli tcl review",
                 "vivado-cli session state",
