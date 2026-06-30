@@ -893,7 +893,7 @@ def _cmd_report(args: argparse.Namespace) -> dict[str, object]:
 def _emit(payload: Any, *, pretty: bool, stream: Any | None = None) -> None:
     stream = stream or sys.stdout
     if pretty:
-        print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), file=stream)
+        print(json.dumps(payload, ensure_ascii=True, indent=2, sort_keys=True), file=stream)
     else:
         print(cli_core.compact_json(payload), file=stream)
 

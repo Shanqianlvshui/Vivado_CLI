@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import hashlib
+import io
 import subprocess
 import sys
 import time
@@ -89,6 +90,30 @@ def test_cli_accepts_pretty_after_subcommand(capsys) -> None:
     output = capsys.readouterr().out
     assert output.startswith("{\n")
     assert json.loads(output)["ok"] is True
+
+
+def test_cli_json_output_is_ascii_safe_for_legacy_windows_streams() -> None:
+    raw = io.BytesIO()
+    stream = io.TextIOWrapper(raw, encoding="gbk", newline="")
+
+    cli._emit({"ok": True, "message": "clock • reset"}, pretty=False, stream=stream)
+    stream.flush()
+
+    encoded = raw.getvalue().decode("gbk")
+    assert "\\u2022" in encoded
+    assert json.loads(encoded)["message"] == "clock • reset"
+
+
+def test_cli_pretty_json_output_is_ascii_safe_for_legacy_windows_streams() -> None:
+    raw = io.BytesIO()
+    stream = io.TextIOWrapper(raw, encoding="gbk", newline="")
+
+    cli._emit({"ok": True, "message": "clock • reset"}, pretty=True, stream=stream)
+    stream.flush()
+
+    encoded = raw.getvalue().decode("gbk")
+    assert "\\u2022" in encoded
+    assert json.loads(encoded)["message"] == "clock • reset"
 
 
 def test_cli_lists_packaged_skills(capsys) -> None:

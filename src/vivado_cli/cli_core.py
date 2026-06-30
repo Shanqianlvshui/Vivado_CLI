@@ -2233,4 +2233,4 @@ def _terminate_pid(pid: int, *, force: bool) -> None:
 
 
 def compact_json(payload: Any) -> str:
-    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))

@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit:
+    name: Windows unit tests
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install package
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Compile sources and tests
+        shell: pwsh
+        run: python -m compileall -q src tests
+
+      - name: CLI smoke
+        shell: pwsh
+        run: |
+          vivado-cli --help
+          vivado-cli tools list | Out-Null
+          vivado-cli tcl help create_clock | Out-Null
+
+      - name: Unit tests
+        shell: pwsh
+        run: python -m pytest tests/unit -q
